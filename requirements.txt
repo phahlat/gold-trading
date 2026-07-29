@@ -1,0 +1,7 @@
+MetaTrader5==5.0.5735; platform_system == "Windows"
+mplfinance==0.12.10b0
+matplotlib==3.10.7
+pandas==2.3.3
+numpy==2.3.4
+python-dotenv==1.2.1
+pydantic==2.12.0

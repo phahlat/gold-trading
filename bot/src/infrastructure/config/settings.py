@@ -1,0 +1,218 @@
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+
+@dataclass(frozen=True)
+class GoldSettings:
+    mt5_login: int
+    mt5_password: str
+    mt5_server: str
+    mt5_path: str
+    enable_trading: bool
+    plot_enabled: bool
+    symbols: list[str]
+    timeframe: str
+    lower_timeframe: str
+    higher_timeframe: str
+    candle_count: int
+    refresh_candle_count: int
+    poll_seconds: float
+    position_monitor_seconds: float
+    account_monitor_seconds: float
+    chart_update_seconds: float
+    chart_width: float
+    chart_height: float
+    plot_ltf_candles: int
+    plot_htf_candles: int
+    max_cycles: int
+    log_level: str
+    backtest_data_dir: str
+    backtest_initial_balance: float
+    backtest_fixed_volume: float
+    backtest_results_subdir: str
+    backtest_speed_ms: float
+    backtest_lookback_value: int
+    backtest_lookback_unit: str
+    backtest_use_mt5_profile: bool
+    backtest_simulate_margin_rejection: bool
+    backtest_volume_min: float
+    backtest_volume_max: float
+    backtest_volume_step: float
+    backtest_max_volume_cap: float
+    backtest_default_contract_size: float
+    backtest_default_leverage: float
+    backtest_margin_available_ratio: float
+    backtest_warn_volume_above: float
+    backtest_warn_equity_multiplier: float
+    strategy_names: list[str]
+    enable_multi_entry: bool
+    ladder_entries: int
+    ladder_rr_ratio: float
+    ladder_step_ratio: float
+    fixed_lot_size: float
+    risk_percent: float
+    stop_loss_pips: float
+    take_profit_pips: float
+    ema_fast: int
+    ema_slow: int
+    ema_trend_period: int
+    max_daily_trades: int
+    max_daily_risk_pct: float
+    max_open_positions: int
+    trade_magic_number: int
+    trade_comment_prefix: str
+    pip_size: float
+    position_db_path: str
+    config_env_path: str
+
+
+def _bool_env(value: str | None, default: bool) -> bool:
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def _float_env(name: str, default: float) -> float:
+    return float(os.getenv(name, str(default)))
+
+
+def _int_env(name: str, default: int) -> int:
+    return int(os.getenv(name, str(default)))
+
+
+def _required_float_env(name: str) -> float:
+    value = os.getenv(name)
+    if value is None or not value.strip():
+        raise ValueError(f"Missing required environment variable: {name}")
+    return float(value)
+
+
+def _required_int_env(name: str) -> int:
+    value = os.getenv(name)
+    if value is None or not value.strip():
+        raise ValueError(f"Missing required environment variable: {name}")
+    return int(value)
+
+
+def _required_backtest_speed_ms() -> float:
+    raw_value = os.getenv("BACKTEST_SPEED")
+    if raw_value is None or not raw_value.strip():
+        raise ValueError("Missing required environment variable: BACKTEST_SPEED")
+
+    text = raw_value.strip().lower()
+    try:
+        if text.endswith("ms"):
+            value = float(text[:-2].strip())
+        elif text.endswith("s"):
+            value = float(text[:-1].strip()) * 1000.0
+        else:
+            value = float(text)
+    except ValueError as exc:
+        raise ValueError(f"Invalid BACKTEST_SPEED value: {raw_value}. Use formats like 100ms, 1s, or 250.") from exc
+
+    if value < 0:
+        raise ValueError(f"Invalid BACKTEST_SPEED value: {raw_value}. Value must be >= 0.")
+    return value
+
+
+def _resolve_env_path(env_path: str) -> Path:
+    raw_path = Path(env_path).expanduser()
+    if raw_path.is_absolute():
+        return raw_path
+
+    candidate_paths: list[Path] = [raw_path]
+    if raw_path.parts and raw_path.parts[0] == "gold_bot":
+        candidate_paths.append(Path("bot") / Path(*raw_path.parts[1:]))
+    elif raw_path.parts and raw_path.parts[0] == "bot":
+        candidate_paths.append(Path("gold_bot") / Path(*raw_path.parts[1:]))
+
+    if raw_path.name == ".env":
+        candidate_paths.extend([Path("bot/.env"), Path("gold_bot/.env")])
+    elif raw_path.suffix == ".env":
+        candidate_paths.extend([Path("bot") / raw_path.name, Path("gold_bot") / raw_path.name])
+
+    for candidate in candidate_paths:
+        if candidate.exists():
+            return candidate.resolve()
+
+    return raw_path.resolve()
+
+
+def load_gold_settings(env_path: str = ".env") -> GoldSettings:
+    resolved_env_path = _resolve_env_path(env_path)
+    if resolved_env_path.name != ".env" and resolved_env_path.suffix != ".env":
+        raise ValueError(f"Only .env files are supported for runtime configuration. Received: {env_path}")
+    if not resolved_env_path.exists():
+        raise ValueError(f"Environment file not found: {resolved_env_path}")
+
+    load_dotenv(str(resolved_env_path), override=False)
+    backtest_speed_ms = _required_backtest_speed_ms()
+
+    strategy_names = [s.strip() for s in os.getenv("GOLD_STRATEGY_NAMES", "trend_following,price_action,scalping").split(",") if s.strip()]
+    return GoldSettings(
+        mt5_login=_int_env("MT5_LOGIN", 0),
+        mt5_password=os.getenv("MT5_PASSWORD", ""),
+        mt5_server=os.getenv("MT5_SERVER", ""),
+        mt5_path=os.getenv("MT5_PATH", ""),
+        enable_trading=_bool_env(os.getenv("ENABLE_TRADING"), default=True),
+        plot_enabled=_bool_env(os.getenv("PLOT_ENABLED"), default=True),
+        symbols=[s.strip().upper() for s in os.getenv("SYMBOLS", "XAUUSD").split(",") if s.strip()],
+        timeframe=os.getenv("TIMEFRAME", "M15").upper(),
+        lower_timeframe=os.getenv("LOWER_TIMEFRAME", os.getenv("TIMEFRAME", "M15")).upper(),
+        higher_timeframe=os.getenv("HIGHER_TIMEFRAME", "H1").upper(),
+        candle_count=_int_env("CANDLE_COUNT", 200),
+        refresh_candle_count=max(2, _int_env("REFRESH_CANDLE_COUNT", 5)),
+        poll_seconds=_float_env("POLL_SECONDS", 0.5),
+        position_monitor_seconds=max(0.1, _float_env("POSITION_MONITOR_SECONDS", 5.0)),
+        account_monitor_seconds=max(1.0, _float_env("ACCOUNT_MONITOR_SECONDS", 30.0)),
+        chart_update_seconds=_float_env("CHART_UPDATE_SECONDS", 0.5),
+        chart_width=max(8.0, _required_float_env("CHART_WIDTH")),
+        chart_height=max(5.0, _required_float_env("CHART_HEIGHT")),
+        plot_ltf_candles=max(1, _required_int_env("PLOT_LTF_CANDLES")),
+        plot_htf_candles=max(1, _required_int_env("PLOT_HTF_CANDLES")),
+        max_cycles=_int_env("MAX_CYCLES", 0),
+        log_level=os.getenv("LOG_LEVEL", "DEBUG").strip().upper(),
+        backtest_data_dir=os.getenv("BACKTEST_DATA_DIR", "backtest/data"),
+        backtest_initial_balance=_float_env("BACKTEST_INITIAL_BALANCE", 10000.0),
+        backtest_fixed_volume=_float_env("BACKTEST_FIXED_VOLUME", 0.0),
+        backtest_results_subdir=os.getenv("BACKTEST_RESULTS_SUBDIR", "gold_bot"),
+        backtest_speed_ms=backtest_speed_ms,
+        backtest_lookback_value=max(0, _int_env("BACKTEST_LOOKBACK_VALUE", 0)),
+        backtest_lookback_unit=os.getenv("BACKTEST_LOOKBACK_UNIT", "weeks").strip().lower(),
+        backtest_use_mt5_profile=_bool_env(os.getenv("BACKTEST_USE_MT5_PROFILE"), default=True),
+        backtest_simulate_margin_rejection=_bool_env(os.getenv("BACKTEST_SIMULATE_MARGIN_REJECTION"), default=True),
+        backtest_volume_min=max(0.0, _float_env("BACKTEST_VOLUME_MIN", 0.01)),
+        backtest_volume_max=max(0.01, _float_env("BACKTEST_VOLUME_MAX", 50.0)),
+        backtest_volume_step=max(0.0001, _float_env("BACKTEST_VOLUME_STEP", 0.01)),
+        backtest_max_volume_cap=max(0.0, _float_env("BACKTEST_MAX_VOLUME_CAP", 0.0)),
+        backtest_default_contract_size=max(0.0, _float_env("BACKTEST_DEFAULT_CONTRACT_SIZE", 100.0)),
+        backtest_default_leverage=max(1.0, _float_env("BACKTEST_DEFAULT_LEVERAGE", 100.0)),
+        backtest_margin_available_ratio=min(1.0, max(0.1, _float_env("BACKTEST_MARGIN_AVAILABLE_RATIO", 0.95))),
+        backtest_warn_volume_above=max(0.0, _float_env("BACKTEST_WARN_VOLUME_ABOVE", 5.0)),
+        backtest_warn_equity_multiplier=max(1.0, _float_env("BACKTEST_WARN_EQUITY_MULTIPLIER", 20.0)),
+        strategy_names=strategy_names,
+        enable_multi_entry=_bool_env(os.getenv("GOLD_ENABLE_MULTI_ENTRY"), default=True),
+        ladder_entries=_int_env("GOLD_LADDER_ENTRIES", 3),
+        ladder_rr_ratio=_float_env("GOLD_LADDER_RR_RATIO", 1.5),
+        ladder_step_ratio=_float_env("GOLD_LADDER_STEP_RATIO", 1.5),
+        fixed_lot_size=max(0.0, _float_env("GOLD_FIXED_LOT_SIZE", 0.0)),
+        risk_percent=_float_env("GOLD_RISK_PERCENT", 1.0),
+        stop_loss_pips=_float_env("GOLD_STOP_LOSS_PIPS", 120.0),
+        take_profit_pips=_float_env("GOLD_TAKE_PROFIT_PIPS", 250.0),
+        ema_fast=_int_env("GOLD_EMA_FAST", 9),
+        ema_slow=_int_env("GOLD_EMA_SLOW", 21),
+        ema_trend_period=_int_env("GOLD_EMA_TREND_PERIOD", 200),
+        max_daily_trades=_int_env("GOLD_MAX_DAILY_TRADES", 3),
+        max_daily_risk_pct=_float_env("GOLD_MAX_DAILY_RISK_PCT", 3.0),
+        max_open_positions=max(1, _int_env("GOLD_MAX_OPEN_POSITIONS", 2)),
+        trade_magic_number=_int_env("GOLD_TRADE_MAGIC_NUMBER", 550015),
+        trade_comment_prefix=os.getenv("GOLD_TRADE_COMMENT_PREFIX", "gold-bot"),
+        pip_size=max(0.00001, _float_env("GOLD_PIP_SIZE", 0.01)),
+        position_db_path=os.getenv("MT5_POSITION_DB_PATH", "logs/gold_positions.sqlite3"),
+        config_env_path=str(resolved_env_path),
+    )

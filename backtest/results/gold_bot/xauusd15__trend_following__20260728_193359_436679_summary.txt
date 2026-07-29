@@ -1,0 +1,3 @@
+source=XAUUSD15
+total_signals=65
+signals_written=65

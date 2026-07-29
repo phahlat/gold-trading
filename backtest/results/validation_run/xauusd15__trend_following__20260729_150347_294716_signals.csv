@@ -1,0 +1,15 @@
+strategy,direction,reason,entry_price,take_profit_pips,stop_loss_pips,level
+trend_following,sell,EMA pullback breakout,1313.671,600.0,300.0,1
+trend_following,buy,EMA pullback breakout,1318.938,600.0,300.0,1
+trend_following,sell,EMA pullback breakout,1314.768,600.0,300.0,1
+trend_following,sell,EMA pullback breakout,1315.191,600.0,300.0,1
+trend_following,sell,EMA pullback breakout,1312.171,600.0,300.0,1
+trend_following,buy,EMA pullback breakout,1322.698,600.0,300.0,1
+trend_following,buy,EMA pullback breakout,1323.602,600.0,300.0,1
+trend_following,buy,EMA pullback breakout,1323.549,600.0,300.0,1
+trend_following,buy,EMA pullback breakout,1323.608,600.0,300.0,1
+trend_following,buy,EMA pullback breakout,1329.498,600.0,300.0,1
+trend_following,buy,EMA pullback breakout,1327.469,600.0,300.0,1
+trend_following,buy,EMA pullback breakout,1333.852,600.0,300.0,1
+trend_following,buy,EMA pullback breakout,1353.698,600.0,300.0,1
+trend_following,buy,EMA pullback breakout,1352.768,600.0,300.0,1

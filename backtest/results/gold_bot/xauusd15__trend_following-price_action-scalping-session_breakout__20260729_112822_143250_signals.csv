@@ -1,0 +1,45 @@
+strategy,direction,reason,entry_price,take_profit_pips,stop_loss_pips,level
+trend_following,buy,EMA pullback breakout,4092.615,600.0,300.0,1
+price_action,buy,rejection at resistance,4092.615,600.0,300.0,1
+scalping,buy,EMA crossover,4092.615,600.0,300.0,1
+price_action,sell,rejection at support,4062.805,600.0,300.0,1
+session_breakout,sell,breakout below session range,4062.805,600.0,300.0,1
+price_action,sell,rejection at support,4056.375,600.0,300.0,1
+session_breakout,sell,breakout below session range,4056.375,600.0,300.0,1
+scalping,sell,EMA crossover,4059.575,600.0,300.0,1
+price_action,sell,rejection at support,4046.515,600.0,300.0,1
+session_breakout,sell,breakout below session range,4046.515,600.0,300.0,1
+price_action,sell,rejection at support,4044.285,600.0,300.0,1
+session_breakout,sell,breakout below session range,4044.285,600.0,300.0,1
+trend_following,sell,EMA pullback breakout,4038.475,600.0,300.0,1
+price_action,sell,rejection at support,4038.475,600.0,300.0,1
+scalping,sell,EMA crossover,4038.475,600.0,300.0,1
+session_breakout,sell,breakout below session range,4038.475,600.0,300.0,1
+price_action,sell,rejection at support,4032.955,600.0,300.0,1
+session_breakout,sell,breakout below session range,4032.955,600.0,300.0,1
+price_action,sell,rejection at support,4025.815,600.0,300.0,1
+session_breakout,sell,breakout below session range,4025.815,600.0,300.0,1
+price_action,sell,rejection at support,4024.875,600.0,300.0,1
+session_breakout,sell,breakout below session range,4024.875,600.0,300.0,1
+price_action,sell,rejection at support,4017.705,600.0,300.0,1
+session_breakout,sell,breakout below session range,4017.705,600.0,300.0,1
+price_action,sell,rejection at support,4043.805,600.0,300.0,1
+session_breakout,sell,breakout below session range,4043.805,600.0,300.0,1
+price_action,sell,rejection at support,4038.085,600.0,300.0,1
+session_breakout,sell,breakout below session range,4038.085,600.0,300.0,1
+trend_following,sell,EMA pullback breakout,4034.525,600.0,300.0,1
+price_action,sell,rejection at support,4034.525,600.0,300.0,1
+scalping,sell,EMA crossover,4034.525,600.0,300.0,1
+session_breakout,sell,breakout below session range,4034.525,600.0,300.0,1
+price_action,sell,rejection at support,4028.585,600.0,300.0,1
+session_breakout,sell,breakout below session range,4028.585,600.0,300.0,1
+trend_following,buy,EMA pullback breakout,4062.315,600.0,300.0,1
+price_action,buy,rejection at resistance,4062.315,600.0,300.0,1
+scalping,buy,EMA crossover,4062.315,600.0,300.0,1
+session_breakout,buy,breakout above session range,4062.315,600.0,300.0,1
+price_action,buy,rejection at resistance,4067.655,600.0,300.0,1
+session_breakout,buy,breakout above session range,4067.655,600.0,300.0,1
+price_action,buy,rejection at resistance,4074.015,600.0,300.0,1
+session_breakout,buy,breakout above session range,4074.015,600.0,300.0,1
+price_action,sell,rejection at support,4055.815,600.0,300.0,1
+price_action,sell,rejection at support,4051.035,600.0,300.0,1
