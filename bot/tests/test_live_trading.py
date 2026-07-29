@@ -3,13 +3,13 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
-from gold_bot.src.application.services.gold_live_service import GoldLiveService
-from gold_bot.src.application.services.gold_runner import GoldRunner
-from gold_bot.src.infrastructure.charting.live_plot import LiveChartRenderer
-from gold_bot.src.infrastructure.config.settings import load_gold_settings
-from gold_bot.src.infrastructure.mt5 import connector as mt5_connector
-from gold_bot.src.infrastructure.mt5.connector import GoldMt5Connector
-from gold_bot.src.infrastructure.persistence.sqlite_store import GoldPositionStore
+from bot.src.application.services.gold_live_service import GoldLiveService
+from bot.src.application.services.gold_runner import GoldRunner
+from bot.src.infrastructure.charting.live_plot import LiveChartRenderer
+from bot.src.infrastructure.config.settings import load_gold_settings
+from bot.src.infrastructure.mt5 import connector as mt5_connector
+from bot.src.infrastructure.mt5.connector import GoldMt5Connector
+from bot.src.infrastructure.persistence.sqlite_store import GoldPositionStore
 
 
 def _copy_example_env(tmp_path: Path) -> str:

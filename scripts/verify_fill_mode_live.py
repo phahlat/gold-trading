@@ -5,8 +5,8 @@ from datetime import datetime
 
 import MetaTrader5 as mt5
 
-from gold_bot.src.infrastructure.config.settings import load_gold_settings
-from gold_bot.src.infrastructure.mt5.connector import GoldMt5Connector
+from bot.src.infrastructure.config.settings import load_gold_settings
+from bot.src.infrastructure.mt5.connector import GoldMt5Connector
 
 
 def main() -> int:

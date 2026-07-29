@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from gold_bot.src.interfaces.cli.main import main as gold_bot_main
+from bot.src.interfaces.cli.main import main as gold_bot_main
 
 
 if __name__ == "__main__":

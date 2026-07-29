@@ -8,15 +8,15 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from gold_bot.src.application.services.gold_backtest_service import GoldBacktestService
-from gold_bot.src.application.services.gold_live_service import GoldLiveService
-from gold_bot.src.application.services.gold_runner import GoldRunner
-from gold_bot.src.infrastructure.charting.live_plot import LiveChartRenderer
-from gold_bot.src.infrastructure.config.settings import load_gold_settings
-from gold_bot.src.infrastructure.logging.runtime import GoldQueueLoggingManager
-from gold_bot.src.infrastructure.market_data.csv_loader import load_backtest_ltf_htf_frames
-from gold_bot.src.infrastructure.mt5.connector import GoldMt5Connector
-from gold_bot.src.infrastructure.persistence.sqlite_store import GoldPositionStore
+from bot.src.application.services.gold_backtest_service import GoldBacktestService
+from bot.src.application.services.gold_live_service import GoldLiveService
+from bot.src.application.services.gold_runner import GoldRunner
+from bot.src.infrastructure.charting.live_plot import LiveChartRenderer
+from bot.src.infrastructure.config.settings import load_gold_settings
+from bot.src.infrastructure.logging.runtime import GoldQueueLoggingManager
+from bot.src.infrastructure.market_data.csv_loader import load_backtest_ltf_htf_frames
+from bot.src.infrastructure.mt5.connector import GoldMt5Connector
+from bot.src.infrastructure.persistence.sqlite_store import GoldPositionStore
 
 logger = logging.getLogger(__name__)
 

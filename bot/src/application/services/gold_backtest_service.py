@@ -7,10 +7,10 @@ from typing import Any
 
 import pandas as pd
 
-from gold_bot.src.application.services.gold_runner import GoldRunner
-from gold_bot.src.infrastructure.charting.live_plot import LiveChartRenderer
-from gold_bot.src.infrastructure.config.settings import GoldSettings
-from gold_bot.src.infrastructure.mt5.connector import GoldMt5Connector
+from bot.src.application.services.gold_runner import GoldRunner
+from bot.src.infrastructure.charting.live_plot import LiveChartRenderer
+from bot.src.infrastructure.config.settings import GoldSettings
+from bot.src.infrastructure.mt5.connector import GoldMt5Connector
 
 logger = logging.getLogger(__name__)
 

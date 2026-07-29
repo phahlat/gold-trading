@@ -6,9 +6,9 @@ from typing import Any
 
 import pandas as pd
 
-from gold_bot.src.application.services.gold_trade_manager import GoldTradeManager
-from gold_bot.src.domain.services.gold_strategies import GoldStrategyEngine
-from gold_bot.src.infrastructure.config.settings import GoldSettings
+from bot.src.application.services.gold_trade_manager import GoldTradeManager
+from bot.src.domain.services.gold_strategies import GoldStrategyEngine
+from bot.src.infrastructure.config.settings import GoldSettings
 
 logger = logging.getLogger(__name__)
 

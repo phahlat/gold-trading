@@ -3,10 +3,10 @@ from pathlib import Path
 
 import pandas as pd
 
-from gold_bot.src.application.services.gold_runner import GoldRunner
-from gold_bot.src.domain.services.gold_strategies import GoldStrategyEngine
-from gold_bot.src.infrastructure.config.settings import load_gold_settings
-from gold_bot.src.interfaces.cli.main import _resolve_backtest_data_source
+from bot.src.application.services.gold_runner import GoldRunner
+from bot.src.domain.services.gold_strategies import GoldStrategyEngine
+from bot.src.infrastructure.config.settings import load_gold_settings
+from bot.src.interfaces.cli.main import _resolve_backtest_data_source
 
 
 def _copy_example_env(tmp_path: Path) -> str:

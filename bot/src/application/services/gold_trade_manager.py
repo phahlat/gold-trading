@@ -3,8 +3,8 @@ from __future__ import annotations
 import math
 from typing import Any
 
-from gold_bot.src.domain.services.gold_strategies import SignalCandidate
-from gold_bot.src.infrastructure.config.settings import GoldSettings
+from bot.src.domain.services.gold_strategies import SignalCandidate
+from bot.src.infrastructure.config.settings import GoldSettings
 
 
 class GoldTradeManager:

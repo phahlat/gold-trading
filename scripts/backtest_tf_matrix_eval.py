@@ -10,10 +10,10 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from gold_bot.src.application.services.gold_backtest_service import GoldBacktestService
-from gold_bot.src.application.services.gold_runner import GoldRunner
-from gold_bot.src.infrastructure.config.settings import load_gold_settings
-from gold_bot.src.infrastructure.market_data.csv_loader import load_backtest_ltf_htf_frames
+from bot.src.application.services.gold_backtest_service import GoldBacktestService
+from bot.src.application.services.gold_runner import GoldRunner
+from bot.src.infrastructure.config.settings import load_gold_settings
+from bot.src.infrastructure.market_data.csv_loader import load_backtest_ltf_htf_frames
 
 
 class NullRenderer:

@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pandas as pd
 
-from gold_bot.src.application.services.gold_backtest_service import GoldBacktestService
+from bot.src.application.services.gold_backtest_service import GoldBacktestService
 
 
 class _NoopRunner:

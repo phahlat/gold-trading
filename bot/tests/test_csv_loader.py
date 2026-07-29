@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from gold_bot.src.infrastructure.market_data.csv_loader import load_backtest_ltf_htf_frames, resolve_backtest_timeframe_file
+from bot.src.infrastructure.market_data.csv_loader import load_backtest_ltf_htf_frames, resolve_backtest_timeframe_file
 
 
 def test_resolve_backtest_timeframe_file_prefers_matching_symbol() -> None:
