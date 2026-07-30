@@ -20,6 +20,41 @@ class GoldTradeManager:
             entries.append(self._build_trade(candidate, level))
         return entries
 
+    def update_exit_targets(
+        self,
+        entry_price: float,
+        current_price: float,
+        direction: str,
+        stop_loss_pips: float | None = None,
+        take_profit_pips: float | None = None,
+        move_sl_pips: float | None = None,
+        move_tp_pips: float | None = None,
+    ) -> dict[str, float]:
+        pip_size = float(getattr(self.settings, "pip_size", 0.01))
+        sl_pips = float(stop_loss_pips) if stop_loss_pips is not None else float(self.settings.stop_loss_pips)
+        tp_pips = float(take_profit_pips) if take_profit_pips is not None else float(self.settings.take_profit_pips)
+        move_sl = float(move_sl_pips) if move_sl_pips is not None else max(1.0, sl_pips / 2.0)
+        move_tp = float(move_tp_pips) if move_tp_pips is not None else max(1.0, tp_pips / 2.0)
+
+        if direction == "buy":
+            price_move = current_price - entry_price
+            if price_move >= move_tp * pip_size:
+                stop_loss = entry_price + (move_sl * pip_size)
+                take_profit = current_price + (move_tp * pip_size)
+            else:
+                stop_loss = entry_price - (sl_pips * pip_size)
+                take_profit = entry_price + (tp_pips * pip_size)
+        else:
+            price_move = entry_price - current_price
+            if price_move >= move_tp * pip_size:
+                stop_loss = entry_price - (move_sl * pip_size)
+                take_profit = current_price - (move_tp * pip_size)
+            else:
+                stop_loss = entry_price + (sl_pips * pip_size)
+                take_profit = entry_price - (tp_pips * pip_size)
+
+        return {"stop_loss": round(stop_loss, 5), "take_profit": round(take_profit, 5)}
+
     def _build_trade(self, candidate: SignalCandidate, level: int) -> dict[str, Any]:
         multiplier = self.settings.ladder_step_ratio ** (level - 1)
         price = candidate.price
@@ -28,8 +63,9 @@ class GoldTradeManager:
         else:
             price = price - (self.settings.stop_loss_pips * self.settings.pip_size) * multiplier
 
-        rr_ratio = self.settings.ladder_rr_ratio if level == 1 else max(1.0, self.settings.ladder_rr_ratio - (level - 1) * 0.1)
-        take_profit_pips = self.settings.take_profit_pips * rr_ratio
+        tp_base = self.settings.take_profit_pips
+        tp_increment = tp_base * self.settings.ladder_step_ratio
+        take_profit_pips = tp_base + (tp_increment * (level - 1))
         return {
             "strategy": candidate.strategy,
             "direction": candidate.direction,
@@ -52,8 +88,12 @@ class GoldTradeManager:
         level: int = 1,
     ) -> dict[str, Any]:
         pip_size = float(getattr(self.settings, "pip_size", 0.01))
-        stop_pips = float(stop_loss_pips) if stop_loss_pips is not None else float(self.settings.stop_loss_pips)
-        take_pips = float(take_profit_pips) if take_profit_pips is not None else float(self.settings.take_profit_pips)
+        configured_stop_pips = float(getattr(self.settings, "stop_loss_pips", 0.0))
+        configured_take_pips = float(getattr(self.settings, "take_profit_pips", 0.0))
+        stop_pips_raw = float(stop_loss_pips) if stop_loss_pips is not None else configured_stop_pips
+        take_pips_raw = float(take_profit_pips) if take_profit_pips is not None else configured_take_pips
+        stop_pips = stop_pips_raw if stop_pips_raw > 0 else configured_stop_pips
+        take_pips = take_pips_raw if take_pips_raw > 0 else configured_take_pips
         stop_distance = stop_pips * pip_size
         take_distance = take_pips * pip_size
         if candidate.direction == "buy":

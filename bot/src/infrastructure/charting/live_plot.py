@@ -26,6 +26,10 @@ class LiveChartRenderer:
         ema_fast: int = 9,
         ema_slow: int = 21,
         ema_trend_period: int = 200,
+        tp_marker_size: float = 10.0,
+        sl_marker_size: float = 10.0,
+        entry_marker_size: float = 9.0,
+        direction_marker_size: float = 10.0,
     ) -> None:
         self.output_dir = Path(output_dir or "logs")
         self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -43,6 +47,10 @@ class LiveChartRenderer:
         self._ema_fast = max(1, int(ema_fast))
         self._ema_slow = max(1, int(ema_slow))
         self._ema_trend_period = max(1, int(ema_trend_period))
+        self._tp_marker_size = max(4.0, float(tp_marker_size))
+        self._sl_marker_size = max(4.0, float(sl_marker_size))
+        self._entry_marker_size = max(6.0, float(entry_marker_size))
+        self._direction_marker_size = max(4.0, float(direction_marker_size))
         self._window_shown = False
 
     def _ensure_canvas(self) -> tuple[plt.Figure, Any, Any, Any]:
@@ -57,10 +65,20 @@ class LiveChartRenderer:
                 self._interactive = False
 
         fig = plt.figure(figsize=(self._chart_width, self._chart_height), constrained_layout=True)
+        fig.set_size_inches(self._chart_width, self._chart_height, forward=True)
         grid = fig.add_gridspec(2, 2, height_ratios=[3, 1])
         lower_ax = fig.add_subplot(grid[0, 0])
         higher_ax = fig.add_subplot(grid[0, 1])
         equity_ax = fig.add_subplot(grid[1, :])
+        for ax in (lower_ax, higher_ax, equity_ax):
+            ax.set_facecolor("#000000")
+            ax.tick_params(colors="white")
+            for spine in ax.spines.values():
+                spine.set_color("#444444")
+            ax.grid(True, alpha=0.2, color="white")
+            ax.xaxis.label.set_color("white")
+            ax.yaxis.label.set_color("white")
+        fig.patch.set_facecolor("#000000")
         self._figure = fig
         self._lower_ax = lower_ax
         self._higher_ax = higher_ax
@@ -69,6 +87,12 @@ class LiveChartRenderer:
             try:
                 plt.show(block=False)
                 self._window_shown = True
+                try:
+                    window = getattr(fig.canvas.manager, "window", None)
+                    if window is not None and hasattr(window, "state"):
+                        window.state("zoomed")
+                except Exception:  # pragma: no cover - backend dependent
+                    pass
             except Exception:  # pragma: no cover - backend dependent
                 logger.warning("Interactive show call failed; continuing with file snapshots only.")
                 self._interactive = False
@@ -109,11 +133,10 @@ class LiveChartRenderer:
         ha_low = pd.concat([ha["low"], ha_open, ha_close], axis=1).min(axis=1)
         return pd.DataFrame({"Open": ha_open, "High": ha_high, "Low": ha_low, "Close": ha_close}, index=ha.index)
 
-    @staticmethod
-    def _plot_markers(ax: Any, markers: list[dict[str, Any]], index: pd.Index) -> None:
+    def _plot_markers(self, ax: Any, markers: list[dict[str, Any]], index: pd.Index) -> None:
         if not markers or index.empty:
             return
-        by_style: dict[tuple[str, str], dict[str, list[Any]]] = {}
+        grouped: dict[tuple[str, str], dict[str, list[Any]]] = {}
         for marker in markers:
             ts = marker.get("datetime")
             price = marker.get("price")
@@ -134,39 +157,57 @@ class LiveChartRenderer:
                 marker_x = len(index) - 1
 
             if marker_type == "sl":
-                color = "#ff7f0e"
-                shape = "v"
+                color = "#ff4d4d"
+                marker_key = ("sl", color)
             elif marker_type == "tp":
-                color = "#1f77b4"
-                shape = "^"
+                color = "#2ecc71"
+                marker_key = ("tp", color)
             elif marker_type == "entry":
-                color = "#2ca02c" if direction == "buy" else "#d62728"
-                shape = "D"
+                color = "#f1c40f" if direction == "buy" else "#e67e22"
+                marker_key = ("entry", color)
             else:
-                color = "#1a7f37" if direction == "buy" else "#d1242f"
-                shape = "o"
+                color = "#1abc9c" if direction == "buy" else "#e74c3c"
+                marker_key = ("signal", color)
 
-            bucket = by_style.setdefault((shape, color), {"x": [], "y": [], "labels": []})
+            bucket = grouped.setdefault(marker_key, {"x": [], "y": [], "labels": []})
             bucket["x"].append(marker_x)
             bucket["y"].append(float(price))
             bucket["labels"].append(label)
 
-        for (shape, color), payload in by_style.items():
+        for (marker_kind, color), payload in grouped.items():
+            if marker_kind == "entry":
+                for x, y, text in zip(payload["x"], payload["y"], payload["labels"]):
+                    ax.text(
+                        x,
+                        y,
+                        "$",
+                        color=color,
+                        fontsize=self._entry_marker_size,
+                        ha="center",
+                        va="center",
+                        fontweight="bold",
+                        zorder=7,
+                    )
+                    if text:
+                        ax.annotate(text, (x, y), textcoords="offset points", xytext=(3, 3), fontsize=7, color=color)
+                continue
+
+            size = self._tp_marker_size if marker_kind == "tp" else self._sl_marker_size if marker_kind == "sl" else self._direction_marker_size
             ax.scatter(
                 payload["x"],
                 payload["y"],
                 c=color,
-                s=38,
-                marker=shape,
-                alpha=0.92,
+                s=size,
+                marker="o",
+                alpha=0.95,
                 edgecolors="#111111",
-                linewidths=0.5,
+                linewidths=0.35,
                 zorder=6,
             )
             for x, y, text in zip(payload["x"], payload["y"], payload["labels"]):
                 if not text:
                     continue
-                ax.annotate(text, (x, y), textcoords="offset points", xytext=(4, 4), fontsize=7, color=color)
+                ax.annotate(text, (x, y), textcoords="offset points", xytext=(3, 3), fontsize=7, color=color)
 
     def render_dual_timeframe(
         self,
@@ -230,8 +271,8 @@ class LiveChartRenderer:
         self._draw_ticker_dot(lower_ax, ticker_point, lower.index)
         self._draw_ticker_dot(higher_ax, ticker_point, higher.index)
 
-        lower_ax.set_title(f"{symbol} {lower_timeframe} Heikin-Ashi (last {len(lower)} bars)")
-        higher_ax.set_title(f"{symbol} {higher_timeframe} Heikin-Ashi (last {len(higher)} bars)")
+        lower_ax.set_title(f"{symbol} {lower_timeframe} Heikin-Ashi (last {len(lower)} bars)", color="white")
+        higher_ax.set_title(f"{symbol} {higher_timeframe} Heikin-Ashi (last {len(higher)} bars)", color="white")
         lower_ax.grid(True, alpha=0.2)
         higher_ax.grid(True, alpha=0.2)
 
@@ -267,8 +308,8 @@ class LiveChartRenderer:
 
     def _draw_equity_panel(self, ax: Any, equity_curve: list[dict[str, Any]] | None, mode_label: str) -> None:
         ax.grid(True, alpha=0.25)
-        ax.set_title(f"Account Equity Curve ({mode_label})")
-        ax.set_ylabel("equity")
+        ax.set_title(f"Account Equity Curve ({mode_label})", color="white")
+        ax.set_ylabel("equity", color="white")
         if not equity_curve:
             ax.text(0.5, 0.5, "No equity points yet", transform=ax.transAxes, ha="center", va="center", alpha=0.7)
             return
@@ -309,7 +350,7 @@ class LiveChartRenderer:
         x = len(index) - 1
 
         color = "#00c853" if direction == "buy" else "#ff1744"
-        ax.scatter([x], [float(price)], s=80, marker="o", c=color, edgecolors="#000000", linewidths=0.8, zorder=8)
+        ax.scatter([x], [float(price)], s=max(8, self._direction_marker_size), marker="o", c=color, edgecolors="#000000", linewidths=0.6, zorder=8)
         ax.annotate("tick", (x, float(price)), textcoords="offset points", xytext=(6, 5), fontsize=8, color=color)
 
     def _draw_ticker_trail(self, ax: Any, ticker_trail: list[dict[str, Any]] | None, index: pd.Index) -> None:
@@ -357,6 +398,11 @@ class LiveChartRenderer:
         ]
         legend = anchor_ax.legend(handles=handles, loc="lower right", frameon=True, fontsize=8, title="Account State")
         legend.get_frame().set_alpha(0.88)
+        legend.get_frame().set_facecolor("#111111")
+        legend.get_frame().set_edgecolor("#666666")
+        for text in legend.get_texts():
+            text.set_color("white")
+        legend.get_title().set_color("white")
         # fig.suptitle("Dual Timeframe Execution View", fontsize=13, y=0.98)
 
     def close(self) -> None:

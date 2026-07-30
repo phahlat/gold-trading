@@ -11,15 +11,18 @@ from bot.src.application.services.gold_runner import GoldRunner
 from bot.src.infrastructure.charting.live_plot import LiveChartRenderer
 from bot.src.infrastructure.config.settings import GoldSettings
 from bot.src.infrastructure.mt5.connector import GoldMt5Connector
+from bot.src.infrastructure.persistence.sqlite_store import GoldPositionStore
 
 logger = logging.getLogger(__name__)
 
 
 class GoldBacktestService:
-    def __init__(self, settings: GoldSettings, runner: GoldRunner, chart_renderer: LiveChartRenderer) -> None:
+    def __init__(self, settings: GoldSettings, runner: GoldRunner, chart_renderer: LiveChartRenderer, position_store: GoldPositionStore | None = None) -> None:
         self.settings = settings
         self.runner = runner
         self.chart_renderer = chart_renderer
+        self.position_store = position_store or GoldPositionStore(getattr(settings, "position_db_path", "logs/gold_positions.sqlite3"))
+        self._open_positions: list[dict[str, Any]] = []
 
     def run(self, lower_frame: pd.DataFrame, higher_frame: pd.DataFrame, source_name: str, artifact_stem: str) -> dict[str, Any]:
         working_lower = self._normalize_frame(lower_frame)
@@ -61,6 +64,7 @@ class GoldBacktestService:
 
         history: list[dict[str, Any]] = []
         markers: list[dict[str, Any]] = []
+        self._open_positions = []
         wins = 0
         losses = 0
         breakeven = 0
@@ -73,6 +77,22 @@ class GoldBacktestService:
         warned_high_volume = False
         warned_high_equity = False
         profile = self._resolve_backtest_profile()
+        requested_symbol = self.settings.symbols[0] if self.settings.symbols else "XAUUSD"
+        logger.info("🚀 Backtest service started | symbol=%s lower_tf=%s higher_tf=%s", requested_symbol, self.settings.lower_timeframe, self.settings.higher_timeframe)
+        logger.info(
+            "🧮 Backtest chart candle config | ltf_window=%s htf_window=%s lower_rows=%s higher_rows=%s",
+            self.settings.plot_ltf_candles,
+            self.settings.plot_htf_candles,
+            len(working_lower),
+            len(working_higher),
+        )
+        logger.info(
+            "💼 Account check | balance=%.2f equity=%.2f margin=%.2f free_margin=%.2f",
+            account_snapshot["balance"],
+            account_snapshot["equity"],
+            account_snapshot["margin"],
+            account_snapshot["free_margin"],
+        )
         try:
             for idx in range(len(working_lower)):
                 processed_bars = idx + 1
@@ -84,10 +104,44 @@ class GoldBacktestService:
                     higher_end += 1
                 higher_slab = self._higher_slab_by_index(working_higher, higher_end, lookback)
 
+                logger.info(
+                    "💼 Account check | balance=%.2f equity=%.2f margin=%.2f free_margin=%.2f",
+                    account_snapshot["balance"],
+                    account_snapshot["equity"],
+                    account_snapshot["margin"],
+                    account_snapshot["free_margin"],
+                )
+                prev_equity = equity
+                equity, closed_positions = self._update_open_positions(ts=ts, close_price=float(lower_slab.iloc[-1]["close"]), equity=equity)
+                if closed_positions:
+                    account_change = {"delta_balance": equity - prev_equity, "delta_equity": equity - prev_equity}
+                    account_snapshot = {
+                        "login": "backtest",
+                        "balance": equity,
+                        "equity": equity,
+                        "margin": 0.0,
+                        "free_margin": equity,
+                        "currency": "USD",
+                    }
+                logger.info("📍 Position monitor | open_positions=%s strategy=%s", len(self._open_positions), "backtest")
+
                 candidates = self.runner.evaluate_candidates(lower_slab, higher_frame=higher_slab)
+                logger.info("📈 Cycle %s generated %s candidate signal(s)", idx + 1, len(candidates))
                 for candidate in candidates:
                     raw_volume, sizing_rule = self._resolve_backtest_volume(equity)
                     volume, was_capped = self._normalize_backtest_volume(raw_volume, profile)
+                    signal_key = f"{requested_symbol}:{candidate.strategy}:{candidate.direction}:{ts.isoformat()}"
+                    logger.info(
+                        "📣 Signal detected | key=%s symbol=%s strategy=%s direction=%s reason=%s candidate_price=%.5f ltf_ts=%s htf_ts=%s",
+                        signal_key,
+                        requested_symbol,
+                        candidate.strategy,
+                        candidate.direction,
+                        candidate.reason,
+                        float(candidate.price),
+                        ts,
+                        higher_slab.iloc[-1]["datetime"] if not higher_slab.empty and "datetime" in higher_slab.columns else "n/a",
+                    )
                     if was_capped:
                         volume_cap_events += 1
                     volume_samples.append(volume)
@@ -153,6 +207,84 @@ class GoldBacktestService:
                         "currency": "USD",
                     }
                     account_change = {"delta_balance": equity - prev_equity, "delta_equity": equity - prev_equity}
+                    logger.info(
+                        "💼 Account check | balance=%.2f equity=%.2f margin=%.2f free_margin=%.2f",
+                        account_snapshot["balance"],
+                        account_snapshot["equity"],
+                        account_snapshot["margin"],
+                        account_snapshot["free_margin"],
+                    )
+                    logger.info("📍 Position monitor | open_positions=%s strategy=%s", 0, candidate.strategy)
+                    logger.info(
+                        "✅ Signal confirmed for execution | key=%s symbol=%s strategy=%s direction=%s reason=%s market_price=%.5f",
+                        signal_key,
+                        requested_symbol,
+                        candidate.strategy,
+                        candidate.direction,
+                        candidate.reason,
+                        float(candidate.price),
+                    )
+                    ladder_entries = self.runner.trade_manager.build_ladder(candidate)
+                    for ladder_trade in ladder_entries:
+                        trade_markers = self._build_trade_level_markers(
+                            ts=ts,
+                            direction=candidate.direction,
+                            entry_price=float(ladder_trade.get("entry_price", candidate.price)),
+                            stop_loss_pips=float(ladder_trade.get("stop_loss_pips", self.settings.stop_loss_pips)),
+                            take_profit_pips=float(ladder_trade.get("take_profit_pips", self.settings.take_profit_pips)),
+                        )
+                        markers.extend(trade_markers)
+                        entry_price = float(trade_markers[0]["price"]) if trade_markers else float(candidate.price)
+                        sl_price = float(trade_markers[1]["price"]) if len(trade_markers) > 1 else float(candidate.price)
+                        tp_price = float(trade_markers[2]["price"]) if len(trade_markers) > 2 else float(candidate.price)
+                        logger.info(
+                            "🧾 Trade execution request | key=%s symbol=%s strategy=%s level=%s direction=%s volume=%.2f market_price=%.5f request_entry=%.5f sl=%.5f tp=%.5f",
+                            signal_key,
+                            requested_symbol,
+                            candidate.strategy,
+                            int(ladder_trade.get("level", 1)),
+                            candidate.direction,
+                            float(volume),
+                            float(candidate.price),
+                            entry_price,
+                            sl_price,
+                            tp_price,
+                        )
+                        self._open_positions.append(
+                            {
+                                "position_key": f"backtest:{signal_key}:L{int(ladder_trade.get('level', 1))}",
+                                "ticket": None,
+                                "symbol": requested_symbol,
+                                "direction": candidate.direction,
+                                "volume": float(volume),
+                                "entry_price": float(ladder_trade.get("entry_price", candidate.price)),
+                                "stop_loss": float(entry_price) - (float(ladder_trade.get("stop_loss_pips", self.settings.stop_loss_pips)) * max(0.00001, float(getattr(self.settings, "pip_size", 0.01)))) if candidate.direction.lower() == "buy" else float(entry_price) + (float(ladder_trade.get("stop_loss_pips", self.settings.stop_loss_pips)) * max(0.00001, float(getattr(self.settings, "pip_size", 0.01)))),
+                                "take_profit": float(entry_price) + (float(ladder_trade.get("take_profit_pips", self.settings.take_profit_pips)) * max(0.00001, float(getattr(self.settings, "pip_size", 0.01)))) if candidate.direction.lower() == "buy" else float(entry_price) - (float(ladder_trade.get("take_profit_pips", self.settings.take_profit_pips)) * max(0.00001, float(getattr(self.settings, "pip_size", 0.01)))),
+                                "strategy": candidate.strategy,
+                                "source": "backtest",
+                                "is_external": 0,
+                                "status": "open",
+                                "opened_at": str(ts),
+                                "level": int(ladder_trade.get("level", 1)),
+                            }
+                        )
+                        self.position_store.upsert_position(
+                            {
+                                "position_key": f"backtest:{signal_key}:L{int(ladder_trade.get('level', 1))}",
+                                "ticket": None,
+                                "symbol": requested_symbol,
+                                "direction": candidate.direction,
+                                "volume": float(volume),
+                                "entry_price": float(ladder_trade.get("entry_price", candidate.price)),
+                                "stop_loss": float(entry_price) - (float(ladder_trade.get("stop_loss_pips", self.settings.stop_loss_pips)) * max(0.00001, float(getattr(self.settings, "pip_size", 0.01)))) if candidate.direction.lower() == "buy" else float(entry_price) + (float(ladder_trade.get("stop_loss_pips", self.settings.stop_loss_pips)) * max(0.00001, float(getattr(self.settings, "pip_size", 0.01)))),
+                                "take_profit": float(entry_price) + (float(ladder_trade.get("take_profit_pips", self.settings.take_profit_pips)) * max(0.00001, float(getattr(self.settings, "pip_size", 0.01)))) if candidate.direction.lower() == "buy" else float(entry_price) - (float(ladder_trade.get("take_profit_pips", self.settings.take_profit_pips)) * max(0.00001, float(getattr(self.settings, "pip_size", 0.01)))),
+                                "strategy": candidate.strategy,
+                                "source": "backtest",
+                                "is_external": 0,
+                                "status": "open",
+                                "opened_at": str(ts),
+                            }
+                        )
                     signal = {
                         "strategy": candidate.strategy,
                         "direction": candidate.direction,
@@ -165,9 +297,19 @@ class GoldBacktestService:
                         "level": 1,
                         "datetime": str(ts),
                     }
+                    exit_targets = self.runner.trade_manager.update_exit_targets(
+                        entry_price=float(candidate.price),
+                        current_price=float(candidate.price),
+                        direction=candidate.direction,
+                        stop_loss_pips=float(self.settings.stop_loss_pips),
+                        take_profit_pips=float(self.settings.take_profit_pips),
+                        move_sl_pips=max(1.0, float(self.settings.stop_loss_pips) / 2.0),
+                        move_tp_pips=max(1.0, float(self.settings.take_profit_pips) / 2.0),
+                    )
+                    signal["stop_loss"] = exit_targets["stop_loss"]
+                    signal["take_profit"] = exit_targets["take_profit"]
                     history.append(signal)
                     markers.append({"datetime": ts, "price": float(candidate.price), "direction": candidate.direction, "type": "signal"})
-                    markers.extend(self._build_trade_level_markers(ts=ts, direction=candidate.direction, entry_price=float(candidate.price)))
 
                 equity_curve.append({"datetime": ts, "equity": equity, "balance": equity})
 
@@ -182,7 +324,7 @@ class GoldBacktestService:
                         higher_markers=markers,
                         account_snapshot=account_snapshot,
                         account_change=account_change,
-                        open_positions_count=0,
+                        open_positions_count=len(self._open_positions),
                         equity_curve=equity_curve,
                         mode_label="backtest",
                         output_name=f"{artifact_stem}_backtest_heikinashi.png",
@@ -327,35 +469,63 @@ class GoldBacktestService:
         )
         return filtered_lower.reset_index(drop=True), filtered_higher.reset_index(drop=True)
 
-    def _build_trade_level_markers(self, ts: Any, direction: str, entry_price: float) -> list[dict[str, Any]]:
+    def _build_trade_level_markers(self, ts: Any, direction: str, entry_price: float, stop_loss_pips: float | None = None, take_profit_pips: float | None = None) -> list[dict[str, Any]]:
         pip_size = max(0.00001, float(getattr(self.settings, "pip_size", 0.01)))
-        sl_pips = max(1.0, float(getattr(self.settings, "stop_loss_pips", 120.0)))
-        tp_pips = max(1.0, float(getattr(self.settings, "take_profit_pips", 250.0)))
-        level_count = max(1, int(getattr(self.settings, "ladder_entries", 1)))
-        rr_base = float(getattr(self.settings, "ladder_rr_ratio", 1.5))
+        sl_pips = max(1.0, float(stop_loss_pips if stop_loss_pips is not None else getattr(self.settings, "stop_loss_pips", 120.0)))
+        tp_pips = max(1.0, float(take_profit_pips if take_profit_pips is not None else getattr(self.settings, "take_profit_pips", 250.0)))
 
         is_buy = direction.lower() == "buy"
         sl_price = entry_price - (sl_pips * pip_size) if is_buy else entry_price + (sl_pips * pip_size)
+        tp_price = entry_price + (tp_pips * pip_size) if is_buy else entry_price - (tp_pips * pip_size)
 
-        markers: list[dict[str, Any]] = [
-            {"datetime": ts, "price": entry_price, "direction": direction, "type": "entry", "label": "Entry"},
-            {"datetime": ts, "price": sl_price, "direction": direction, "type": "sl", "label": "SL"},
+        return [
+            {"datetime": ts, "price": entry_price, "direction": direction, "type": "entry", "label": ""},
+            {"datetime": ts, "price": sl_price, "direction": direction, "type": "sl", "label": ""},
+            {"datetime": ts, "price": tp_price, "direction": direction, "type": "tp", "label": ""},
         ]
 
-        for level in range(1, level_count + 1):
-            rr_ratio = rr_base if level == 1 else max(1.0, rr_base - (level - 1) * 0.1)
-            level_tp_pips = tp_pips * rr_ratio
-            tp_price = entry_price + (level_tp_pips * pip_size) if is_buy else entry_price - (level_tp_pips * pip_size)
-            markers.append(
-                {
-                    "datetime": ts,
-                    "price": tp_price,
-                    "direction": direction,
-                    "type": "tp",
-                    "label": f"TP{level}",
-                }
-            )
-        return markers
+    def _update_open_positions(self, ts: Any, close_price: float, equity: float) -> tuple[float, int]:
+        remaining_positions: list[dict[str, Any]] = []
+        closed_positions = 0
+        for position in self._open_positions:
+            direction = str(position.get("direction", "buy")).lower()
+            entry_price = float(position.get("entry_price", 0.0))
+            stop_loss = float(position.get("stop_loss", 0.0))
+            take_profit = float(position.get("take_profit", 0.0))
+            volume = max(0.0, float(position.get("volume", 0.0)))
+            pip_size = max(0.00001, float(getattr(self.settings, "pip_size", 0.01)))
+            if direction == "buy":
+                if close_price >= take_profit:
+                    exit_price = take_profit
+                    pnl = (exit_price - entry_price) / pip_size * max(0.0, volume)
+                    equity += pnl
+                    closed_positions += 1
+                    self.position_store.upsert_position({**position, "status": "closed", "closed_at": str(ts), "close_price": exit_price})
+                elif close_price <= stop_loss:
+                    exit_price = stop_loss
+                    pnl = (exit_price - entry_price) / pip_size * max(0.0, volume)
+                    equity += pnl
+                    closed_positions += 1
+                    self.position_store.upsert_position({**position, "status": "closed", "closed_at": str(ts), "close_price": exit_price})
+                else:
+                    remaining_positions.append(position)
+            else:
+                if close_price <= take_profit:
+                    exit_price = take_profit
+                    pnl = (entry_price - exit_price) / pip_size * max(0.0, volume)
+                    equity += pnl
+                    closed_positions += 1
+                    self.position_store.upsert_position({**position, "status": "closed", "closed_at": str(ts), "close_price": exit_price})
+                elif close_price >= stop_loss:
+                    exit_price = stop_loss
+                    pnl = (entry_price - exit_price) / pip_size * max(0.0, volume)
+                    equity += pnl
+                    closed_positions += 1
+                    self.position_store.upsert_position({**position, "status": "closed", "closed_at": str(ts), "close_price": exit_price})
+                else:
+                    remaining_positions.append(position)
+        self._open_positions = remaining_positions
+        return equity, closed_positions
 
     def _resolve_backtest_volume(self, equity: float) -> tuple[float, str]:
         fixed_backtest_volume = max(0.0, float(getattr(self.settings, "backtest_fixed_volume", 0.0)))
@@ -366,12 +536,9 @@ class GoldBacktestService:
         if fixed_lot_size > 0:
             return max(0.01, fixed_lot_size), "gold_fixed_lot_size"
 
-        risk_percent = max(0.0, float(getattr(self.settings, "risk_percent", 1.0)))
-        stop_loss_pips = max(1.0, float(getattr(self.settings, "stop_loss_pips", 120.0)))
-        risk_amount = max(0.0, float(equity) * (risk_percent / 100.0))
-        # Backtest assumes 1.0 account-currency unit per pip per 1.0 lot.
-        volume = risk_amount / stop_loss_pips if stop_loss_pips > 0 else 0.01
-        return max(0.01, volume), "risk_percent"
+        # Backtests now use fixed pip-based targets and fixed lot sizing when configured.
+        # If no fixed size is set, fall back to a minimal default volume so the behavior is stable.
+        return 0.01, "default_minimum_volume"
 
     def _normalize_backtest_volume(self, raw_volume: float, profile: dict[str, float | str]) -> tuple[float, bool]:
         min_volume = max(0.01, float(profile.get("volume_min", 0.01) or 0.01))

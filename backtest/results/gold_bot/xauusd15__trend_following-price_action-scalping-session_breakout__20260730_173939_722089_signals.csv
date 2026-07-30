@@ -1,0 +1,3 @@
+strategy,direction,reason,entry_price,take_profit_pips,stop_loss_pips,level,trailing_stop_step_pips,trailing_stop_level,trailing_stop_price,exit_price
+price_action,buy,rejection at resistance,3352.065,2400.0,1200.0,1,1200.0,1,3340.065,
+price_action,sell,rejection at support,3347.548,2400.0,1200.0,1,1200.0,1,3359.548,

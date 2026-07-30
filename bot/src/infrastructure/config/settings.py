@@ -27,6 +27,10 @@ class GoldSettings:
     chart_update_seconds: float
     chart_width: float
     chart_height: float
+    chart_tp_marker_size: float
+    chart_sl_marker_size: float
+    chart_entry_marker_size: float
+    chart_direction_marker_size: float
     plot_ltf_candles: int
     plot_htf_candles: int
     max_cycles: int
@@ -52,7 +56,6 @@ class GoldSettings:
     strategy_names: list[str]
     enable_multi_entry: bool
     ladder_entries: int
-    ladder_rr_ratio: float
     ladder_step_ratio: float
     fixed_lot_size: float
     risk_percent: float
@@ -173,6 +176,10 @@ def load_gold_settings(env_path: str = ".env") -> GoldSettings:
         chart_update_seconds=_float_env("CHART_UPDATE_SECONDS", 0.5),
         chart_width=max(8.0, _required_float_env("CHART_WIDTH")),
         chart_height=max(5.0, _required_float_env("CHART_HEIGHT")),
+        chart_tp_marker_size=max(4.0, _float_env("CHART_TP_MARKER_SIZE", 10.0)),
+        chart_sl_marker_size=max(4.0, _float_env("CHART_SL_MARKER_SIZE", 10.0)),
+        chart_entry_marker_size=max(6.0, _float_env("CHART_ENTRY_MARKER_SIZE", 9.0)),
+        chart_direction_marker_size=max(4.0, _float_env("CHART_DIRECTION_MARKER_SIZE", 10.0)),
         plot_ltf_candles=max(1, _required_int_env("PLOT_LTF_CANDLES")),
         plot_htf_candles=max(1, _required_int_env("PLOT_HTF_CANDLES")),
         max_cycles=_int_env("MAX_CYCLES", 0),
@@ -198,8 +205,7 @@ def load_gold_settings(env_path: str = ".env") -> GoldSettings:
         strategy_names=strategy_names,
         enable_multi_entry=_bool_env(os.getenv("GOLD_ENABLE_MULTI_ENTRY"), default=True),
         ladder_entries=_int_env("GOLD_LADDER_ENTRIES", 3),
-        ladder_rr_ratio=_float_env("GOLD_LADDER_RR_RATIO", 1.5),
-        ladder_step_ratio=_float_env("GOLD_LADDER_STEP_RATIO", 1.5),
+        ladder_step_ratio=max(0.01, _float_env("GOLD_LADDER_STEP_RATIO", 1.2)),
         fixed_lot_size=max(0.0, _float_env("GOLD_FIXED_LOT_SIZE", 0.0)),
         risk_percent=_float_env("GOLD_RISK_PERCENT", 1.0),
         stop_loss_pips=_float_env("GOLD_STOP_LOSS_PIPS", 120.0),

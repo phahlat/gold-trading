@@ -1,0 +1,10 @@
+source=XAUUSD15
+total_signals=64
+signals_written=64
+wins=22
+losses=42
+breakeven=0
+win_rate=34.38
+start_balance=1000.00
+end_balance=885.68
+balance_change=-114.32

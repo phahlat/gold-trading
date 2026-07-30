@@ -313,6 +313,17 @@ class GoldLiveService:
                 take_profit_pips=float(ladder_trade.get("take_profit_pips", self.settings.take_profit_pips)),
                 level=int(ladder_trade.get("level", 1)),
             )
+            exit_targets = self.runner.trade_manager.update_exit_targets(
+                entry_price=float(order["entry_price"]),
+                current_price=float(entry_price),
+                direction=order["direction"],
+                stop_loss_pips=float(self.settings.stop_loss_pips),
+                take_profit_pips=float(self.settings.take_profit_pips),
+                move_sl_pips=max(1.0, float(self.settings.stop_loss_pips) / 2.0),
+                move_tp_pips=max(1.0, float(self.settings.take_profit_pips) / 2.0),
+            )
+            order["stop_loss"] = exit_targets["stop_loss"]
+            order["take_profit"] = exit_targets["take_profit"]
             order_comment = f"{self.settings.trade_comment_prefix}:{candidate.strategy}:L{order['level']}"
             logger.info(
                 "🧾 Trade execution request | key=%s symbol=%s strategy=%s level=%s direction=%s volume=%.2f market_price=%.5f request_entry=%.5f sl=%.5f tp=%.5f magic=%s comment=%s",

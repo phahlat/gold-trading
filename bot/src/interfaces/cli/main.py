@@ -203,6 +203,10 @@ def main() -> int:
             ema_fast=settings.ema_fast,
             ema_slow=settings.ema_slow,
             ema_trend_period=settings.ema_trend_period,
+            tp_marker_size=settings.chart_tp_marker_size,
+            sl_marker_size=settings.chart_sl_marker_size,
+            entry_marker_size=settings.chart_entry_marker_size,
+            direction_marker_size=settings.chart_direction_marker_size,
         )
         source_name = lower_path.stem if lower_path.suffix else lower_path.name
         artifact_stem = _backtest_artifact_stem(source_name=source_name, strategy_names=settings.strategy_names)
@@ -261,6 +265,10 @@ def main() -> int:
         ema_fast=settings.ema_fast,
         ema_slow=settings.ema_slow,
         ema_trend_period=settings.ema_trend_period,
+        tp_marker_size=settings.chart_tp_marker_size,
+        sl_marker_size=settings.chart_sl_marker_size,
+        entry_marker_size=settings.chart_entry_marker_size,
+        direction_marker_size=settings.chart_direction_marker_size,
     )
     live_service = GoldLiveService(
         settings=settings,
