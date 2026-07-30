@@ -1,9 +1,0 @@
-strategy,direction,reason,entry_price,take_profit_pips,stop_loss_pips,level,trailing_stop_step_pips,trailing_stop_level,trailing_stop_price,exit_price
-price_action,buy,rejection at resistance,3352.065,2400.0,1200.0,1,1200.0,1,3340.065,
-price_action,sell,rejection at support,3347.548,2400.0,1200.0,1,1200.0,1,3359.548,
-trend_following,sell,EMA pullback breakout,3346.975,2400.0,1200.0,1,1200.0,1,3358.975,
-scalping,sell,EMA crossover,3346.975,2400.0,1200.0,1,1200.0,1,3358.975,
-price_action,sell,rejection at support,3342.248,2400.0,1200.0,1,1200.0,1,3354.248,
-session_breakout,sell,breakout below session range,3342.248,2400.0,1200.0,1,1200.0,1,3354.248,
-price_action,sell,rejection at support,3340.248,2400.0,1200.0,1,1200.0,1,3352.248,
-session_breakout,sell,breakout below session range,3340.248,2400.0,1200.0,1,1200.0,1,3352.248,
