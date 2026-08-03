@@ -12,7 +12,7 @@ import pandas as pd
 from bot.src.application.services.gold_runner import GoldRunner
 from bot.src.infrastructure.charting.live_plot import LiveChartRenderer
 from bot.src.infrastructure.config.settings import GoldSettings
-from bot.src.infrastructure.mt5.connector import GoldMt5Connector
+from bot.src.infrastructure.ctrader.connector import GoldCTraderConnector
 from bot.src.infrastructure.persistence.sqlite_store import GoldPositionStore
 
 logger = logging.getLogger(__name__)
@@ -23,7 +23,7 @@ class GoldLiveService:
         self,
         settings: GoldSettings,
         runner: GoldRunner,
-        connector: GoldMt5Connector,
+        connector: GoldCTraderConnector,
         position_store: GoldPositionStore,
         chart_renderer: LiveChartRenderer,
     ) -> None:
@@ -51,7 +51,7 @@ class GoldLiveService:
     def run(self) -> int:
         requested_symbol = self.settings.symbols[0] if self.settings.symbols else "XAUUSD"
         if not self.connector.connect():
-            logger.error("❌ Live mode requires MT5 connectivity. Refusing CSV fallback.")
+            logger.error("❌ Live mode requires cTrader connectivity. Refusing CSV fallback.")
             return 1
 
         symbol = self.connector.resolve_symbol(requested_symbol)
@@ -107,9 +107,21 @@ class GoldLiveService:
                 lower_frame = self._pull_frame(symbol, self.settings.lower_timeframe)
                 higher_frame = self._pull_frame(symbol, self.settings.higher_timeframe)
                 if lower_frame.empty or higher_frame.empty:
-                    logger.warning("⚠️ No MT5 bars available yet for %s. Retrying.", symbol)
+                    logger.warning("⚠️ No cTrader bars available yet for %s. Retrying.", symbol)
                     time.sleep(max(0.2, self.settings.poll_seconds))
                     continue
+
+                htf_bias_context = self._higher_timeframe_bias_context(higher_frame)
+                logger.info(
+                    "🧭 HTF confirmation | symbol=%s timeframe=%s bias=%s close=%.5f ema_fast=%.5f ema_slow=%.5f ema_trend=%.5f",
+                    symbol,
+                    self.settings.higher_timeframe,
+                    htf_bias_context["bias"],
+                    float(htf_bias_context["close"]),
+                    float(htf_bias_context["ema_fast"]),
+                    float(htf_bias_context["ema_slow"]),
+                    float(htf_bias_context["ema_trend"]),
+                )
 
                 candidates = self.runner.evaluate_candidates(lower_frame, higher_frame=higher_frame)
                 if candidates:
@@ -182,7 +194,22 @@ class GoldLiveService:
         frame["datetime"] = pd.to_datetime(frame["time"], unit="s", utc=True).dt.tz_convert(None)
         frame = frame.sort_values("datetime").reset_index(drop=True)
         required = ["datetime", "open", "high", "low", "close"]
-        return frame[required]
+        frame = frame[required].copy()
+
+        # Guard against malformed broker bars (for example zeroed lows) that can
+        # collapse plot scaling and skew signal calculations.
+        for column in ["open", "high", "low", "close"]:
+            frame[column] = pd.to_numeric(frame[column], errors="coerce")
+        valid = (
+            frame[["open", "high", "low", "close"]].notna().all(axis=1)
+            & (frame[["open", "high", "low", "close"]] > 0).all(axis=1)
+            & (frame["high"] >= frame[["open", "close", "low"]].max(axis=1))
+            & (frame["low"] <= frame[["open", "close", "high"]].min(axis=1))
+        )
+        dropped = int((~valid).sum())
+        if dropped > 0:
+            logger.warning("Filtered %s malformed %s bars for %s", dropped, timeframe, symbol)
+        return frame.loc[valid].reset_index(drop=True)
 
     def _bars_to_pull(self, timeframe: str) -> int:
         base_count = max(1, int(self.settings.candle_count))
@@ -197,16 +224,24 @@ class GoldLiveService:
         ts = lower_frame.iloc[-1]["datetime"]
         strategy_name = str(getattr(candidate, "strategy", "")).strip().lower()
         signal_key = f"{symbol}:{candidate.strategy}:{candidate.direction}:{ts.isoformat()}"
+        decision_context = self._decision_context_for_candidate(
+            strategy_name=strategy_name,
+            lower_frame=lower_frame,
+            higher_frame=higher_frame,
+        )
         logger.info(
-            "📣 Signal detected | key=%s symbol=%s strategy=%s direction=%s reason=%s candidate_price=%.5f ltf_ts=%s htf_ts=%s",
+            "📣 Signal detected | key=%s symbol=%s strategy=%s direction=%s reason=%s candidate_price=%.5f ltf=%s ltf_ts=%s htf=%s htf_ts=%s decision_data=%s",
             signal_key,
             symbol,
             candidate.strategy,
             candidate.direction,
             candidate.reason,
             float(candidate.price),
+            self.settings.lower_timeframe,
             ts,
+            self.settings.higher_timeframe,
             higher_frame.iloc[-1]["datetime"] if not higher_frame.empty and "datetime" in higher_frame.columns else "n/a",
+            decision_context,
         )
         if signal_key in self._last_signal_keys:
             logger.debug("🔁 Duplicate signal skipped | key=%s", signal_key)
@@ -381,7 +416,7 @@ class GoldLiveService:
                     "stop_loss": order["stop_loss"],
                     "take_profit": order["take_profit"],
                     "strategy": order["strategy"],
-                    "source": "mt5",
+                    "source": "ctrader",
                     "is_external": 0,
                     "status": "open",
                     "opened_at": now_iso,
@@ -506,7 +541,7 @@ class GoldLiveService:
         logger.info("📌 Position monitor | symbol=%s open_positions=%s", symbol, len(positions))
         now_iso = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S")
         for item in positions:
-            position_key = f"mt5:ticket-{item['ticket']}:{item['symbol']}"
+            position_key = f"ctrader:ticket-{item['ticket']}:{item['symbol']}"
             direction = "buy" if int(item.get("type", 0)) == 0 else "sell"
             self.position_store.upsert_position(
                 {
@@ -519,7 +554,7 @@ class GoldLiveService:
                     "stop_loss": item["sl"],
                     "take_profit": item["tp"],
                     "strategy": "external",
-                    "source": "mt5",
+                    "source": "ctrader",
                     "is_external": 1,
                     "status": "open",
                     "opened_at": now_iso,
@@ -608,3 +643,95 @@ class GoldLiveService:
         for row in normalized:
             lines.append(" | ".join(row[col].ljust(widths[col]) for col in columns))
         return "\n".join(lines)
+
+    def _higher_timeframe_bias_context(self, higher_frame: pd.DataFrame) -> dict[str, Any]:
+        context = {
+            "bias": "neutral",
+            "close": 0.0,
+            "ema_fast": 0.0,
+            "ema_slow": 0.0,
+            "ema_trend": 0.0,
+        }
+        if higher_frame.empty or "close" not in higher_frame.columns:
+            return context
+
+        higher_close = higher_frame["close"].astype(float)
+        if higher_close.empty:
+            return context
+
+        ema_fast = higher_close.ewm(span=max(1, int(self.settings.ema_fast)), adjust=False).mean()
+        ema_slow = higher_close.ewm(span=max(1, int(self.settings.ema_slow)), adjust=False).mean()
+        ema_trend = higher_close.ewm(span=max(1, int(self.settings.ema_trend_period)), adjust=False).mean()
+        last_close = float(higher_close.iloc[-1])
+        last_fast = float(ema_fast.iloc[-1])
+        last_slow = float(ema_slow.iloc[-1])
+        last_trend = float(ema_trend.iloc[-1])
+
+        bias = "neutral"
+        if last_close >= last_trend and last_fast >= last_slow:
+            bias = "buy"
+        elif last_close <= last_trend and last_fast <= last_slow:
+            bias = "sell"
+
+        context.update(
+            {
+                "bias": bias,
+                "close": last_close,
+                "ema_fast": last_fast,
+                "ema_slow": last_slow,
+                "ema_trend": last_trend,
+            }
+        )
+        return context
+
+    def _decision_context_for_candidate(
+        self,
+        strategy_name: str,
+        lower_frame: pd.DataFrame,
+        higher_frame: pd.DataFrame,
+    ) -> dict[str, Any]:
+        context: dict[str, Any] = {
+            "ltf": self.settings.lower_timeframe,
+            "htf": self.settings.higher_timeframe,
+            "htf_confirmation": self._higher_timeframe_bias_context(higher_frame),
+        }
+        if lower_frame.empty or "close" not in lower_frame.columns:
+            return context
+
+        close = lower_frame["close"].astype(float)
+        high = lower_frame["high"].astype(float)
+        low = lower_frame["low"].astype(float)
+        context["ltf_close"] = float(close.iloc[-1])
+
+        if strategy_name in {"trend_following", "scalping"}:
+            ema_fast = close.ewm(span=max(1, int(self.settings.ema_fast)), adjust=False).mean()
+            ema_slow = close.ewm(span=max(1, int(self.settings.ema_slow)), adjust=False).mean()
+            context["ema_fast"] = float(ema_fast.iloc[-1])
+            context["ema_slow"] = float(ema_slow.iloc[-1])
+            if len(ema_fast) > 1:
+                context["ema_fast_prev"] = float(ema_fast.iloc[-2])
+                context["ema_slow_prev"] = float(ema_slow.iloc[-2])
+        if strategy_name == "trend_following":
+            ema_trend = close.ewm(span=max(1, int(self.settings.ema_trend_period)), adjust=False).mean()
+            context["ema_trend"] = float(ema_trend.iloc[-1])
+            if len(ema_trend) > 1:
+                context["ema_trend_prev"] = float(ema_trend.iloc[-2])
+        if strategy_name == "price_action" and len(lower_frame) >= 2:
+            prior = lower_frame.iloc[:-1]
+            context["window_bars"] = 5
+            context["recent_high_5"] = float(prior["high"].tail(5).max())
+            context["recent_low_5"] = float(prior["low"].tail(5).min())
+        if strategy_name == "session_breakout" and len(lower_frame) >= 8:
+            prior = lower_frame.iloc[:-1]
+            context["window_bars"] = 8
+            context["session_high_8"] = float(prior["high"].tail(8).max())
+            context["session_low_8"] = float(prior["low"].tail(8).min())
+            context["session_close"] = float(close.iloc[-1])
+        if strategy_name == "news" and len(lower_frame) >= 3:
+            context["prev_close"] = float(close.iloc[-2])
+            context["current_high"] = float(high.iloc[-1])
+            context["prev_high"] = float(high.iloc[-2])
+            context["current_low"] = float(low.iloc[-1])
+            context["prev_low"] = float(low.iloc[-2])
+
+        return context

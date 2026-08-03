@@ -9,10 +9,16 @@ from dotenv import load_dotenv
 
 @dataclass(frozen=True)
 class GoldSettings:
-    mt5_login: int
-    mt5_password: str
-    mt5_server: str
-    mt5_path: str
+    ctrader_client_id: str
+    ctrader_client_secret: str
+    ctrader_access_token: str
+    ctrader_refresh_token: str
+    ctrader_account_id: int
+    ctrader_live_account_id: int
+    ctrader_demo_account_id: int
+    ctrader_host: str
+    ctrader_request_timeout_seconds: float
+    ctrader_connect_timeout_seconds: float
     enable_trading: bool
     plot_enabled: bool
     symbols: list[str]
@@ -42,7 +48,7 @@ class GoldSettings:
     backtest_speed_ms: float
     backtest_lookback_value: int
     backtest_lookback_unit: str
-    backtest_use_mt5_profile: bool
+    backtest_use_broker_profile: bool
     backtest_simulate_margin_rejection: bool
     backtest_volume_min: float
     backtest_volume_max: float
@@ -158,10 +164,16 @@ def load_gold_settings(env_path: str = ".env") -> GoldSettings:
 
     strategy_names = [s.strip() for s in os.getenv("GOLD_STRATEGY_NAMES", "trend_following,price_action,scalping").split(",") if s.strip()]
     return GoldSettings(
-        mt5_login=_int_env("MT5_LOGIN", 0),
-        mt5_password=os.getenv("MT5_PASSWORD", ""),
-        mt5_server=os.getenv("MT5_SERVER", ""),
-        mt5_path=os.getenv("MT5_PATH", ""),
+        ctrader_client_id=os.getenv("CTRADER_CLIENT_ID", ""),
+        ctrader_client_secret=os.getenv("CTRADER_CLIENT_SECRET", ""),
+        ctrader_access_token=os.getenv("CTRADER_ACCESS_TOKEN", ""),
+        ctrader_refresh_token=os.getenv("CTRADER_REFRESH_TOKEN", ""),
+        ctrader_account_id=_int_env("CTRADER_ACCOUNT_ID", 0),
+        ctrader_live_account_id=_int_env("CTRADER_LIVE_ACCOUNT_ID", 0),
+        ctrader_demo_account_id=_int_env("CTRADER_DEMO_ACCOUNT_ID", 0),
+        ctrader_host=os.getenv("CTRADER_HOST", "live").strip().lower(),
+        ctrader_request_timeout_seconds=max(2.0, _float_env("CTRADER_REQUEST_TIMEOUT_SECONDS", 12.0)),
+        ctrader_connect_timeout_seconds=max(3.0, _float_env("CTRADER_CONNECT_TIMEOUT_SECONDS", 15.0)),
         enable_trading=_bool_env(os.getenv("ENABLE_TRADING"), default=True),
         plot_enabled=_bool_env(os.getenv("PLOT_ENABLED"), default=True),
         symbols=[s.strip().upper() for s in os.getenv("SYMBOLS", "XAUUSD").split(",") if s.strip()],
@@ -191,7 +203,10 @@ def load_gold_settings(env_path: str = ".env") -> GoldSettings:
         backtest_speed_ms=backtest_speed_ms,
         backtest_lookback_value=max(0, _int_env("BACKTEST_LOOKBACK_VALUE", 0)),
         backtest_lookback_unit=os.getenv("BACKTEST_LOOKBACK_UNIT", "weeks").strip().lower(),
-        backtest_use_mt5_profile=_bool_env(os.getenv("BACKTEST_USE_MT5_PROFILE"), default=True),
+        backtest_use_broker_profile=_bool_env(
+            os.getenv("BACKTEST_USE_BROKER_PROFILE", os.getenv("BACKTEST_USE_MT5_PROFILE")),
+            default=True,
+        ),
         backtest_simulate_margin_rejection=_bool_env(os.getenv("BACKTEST_SIMULATE_MARGIN_REJECTION"), default=True),
         backtest_volume_min=max(0.0, _float_env("BACKTEST_VOLUME_MIN", 0.01)),
         backtest_volume_max=max(0.01, _float_env("BACKTEST_VOLUME_MAX", 50.0)),
@@ -219,6 +234,6 @@ def load_gold_settings(env_path: str = ".env") -> GoldSettings:
         trade_magic_number=_int_env("GOLD_TRADE_MAGIC_NUMBER", 550015),
         trade_comment_prefix=os.getenv("GOLD_TRADE_COMMENT_PREFIX", "gold-bot"),
         pip_size=max(0.00001, _float_env("GOLD_PIP_SIZE", 0.01)),
-        position_db_path=os.getenv("MT5_POSITION_DB_PATH", "logs/gold_positions.sqlite3"),
+        position_db_path=os.getenv("CTRADER_POSITION_DB_PATH", os.getenv("MT5_POSITION_DB_PATH", "logs/gold_positions.sqlite3")),
         config_env_path=str(resolved_env_path),
     )

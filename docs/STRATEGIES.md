@@ -4,7 +4,51 @@ The gold bot packages five strategy ideas into one runner. Each strategy generat
 
 Timeframe context:
 - Strategy signals are generated from lower timeframe data and filtered by higher timeframe directional bias.
-- Live mode uses MT5 LTF/HTF candles; backtest mode uses separate LTF/HTF CSV files.
+- Live mode uses cTrader LTF/HTF candles; backtest mode uses separate LTF/HTF CSV files.
+
+## Decision Audit From Live Logs
+
+Use this section to understand exactly why an entry candidate was picked.
+
+Evaluation sequence per cycle:
+1. Pull lower timeframe candles (LTF) and higher timeframe candles (HTF).
+2. Compute HTF bias from HTF EMAs:
+	 - buy when close >= ema_trend and ema_fast >= ema_slow
+	 - sell when close <= ema_trend and ema_fast <= ema_slow
+	 - neutral otherwise
+3. Run each enabled LTF strategy and create candidates.
+4. Remove candidates that conflict with non-neutral HTF bias.
+5. Emit `📣 Signal detected ... decision_data={...}` for each surviving candidate.
+6. Confirm/skip candidate based on trade mode and risk/cap gates.
+
+Latest observed dry-run sample (M15/H1):
+- HTF confirmation: bias=sell, close=4047.69, ema_fast=4056.77228, ema_slow=4058.83456, ema_trend=4052.17956
+- Candidate 1 (price_action sell):
+	- ltf_close=4038.85
+	- recent_low_5=4042.29
+	- result: 4038.85 < 4042.29, so sell candidate is valid
+- Candidate 2 (session_breakout sell):
+	- session_low_8=4042.29
+	- session_close=4038.85
+	- result: 4038.85 < 4042.29, so sell breakout candidate is valid
+- HTF filter accepted both because both were sell and HTF bias was sell.
+
+Decision flow:
+
+```mermaid
+flowchart TD
+	A[Cycle starts] --> B[Pull LTF and HTF candles]
+	B --> C[Compute HTF EMA bias]
+	C --> D[Run enabled strategies on LTF]
+	D --> E[Collect candidates]
+	E --> F{HTF bias neutral?}
+	F -->|Yes| G[Keep all candidates]
+	F -->|No| H[Keep only candidates matching HTF direction]
+	G --> I[Emit Signal detected log with decision_data]
+	H --> I
+	I --> J[Risk and cap checks]
+	J --> K[Dry-run confirm or place order]
+```
 
 ## Multi-Strategy Execution Model
 
@@ -55,6 +99,27 @@ Suggested configuration:
 - `GOLD_STOP_LOSS_PIPS=120`
 - `GOLD_TAKE_PROFIT_PIPS=250`
 
+Decision diagram:
+
+```mermaid
+flowchart TD
+	A[Compute LTF ema_fast ema_slow ema_trend] --> B{close > ema_trend?}
+	B -->|No| C{close < ema_trend?}
+	B -->|Yes| D{ema_fast > ema_slow and prev_fast <= prev_slow?}
+	D -->|Yes| E[BUY candidate]
+	D -->|No| F[No signal]
+	C -->|Yes| G{ema_fast < ema_slow and prev_fast >= prev_slow?}
+	C -->|No| F
+	G -->|Yes| H[SELL candidate]
+	G -->|No| F
+```
+
+Decision fields to inspect in logs:
+- `decision_data.ema_fast`, `decision_data.ema_slow`
+- `decision_data.ema_fast_prev`, `decision_data.ema_slow_prev`
+- `decision_data.ema_trend`, `decision_data.ema_trend_prev`
+- `decision_data.ltf_close`
+
 ### 2. price_action
 
 How it works:
@@ -73,6 +138,24 @@ Suggested configuration:
 - `GOLD_STOP_LOSS_PIPS=80`
 - `GOLD_TAKE_PROFIT_PIPS=180`
 
+Decision diagram:
+
+```mermaid
+flowchart TD
+	A[Take prior 5-candle window excluding latest candle] --> B[Compute recent_high_5 and recent_low_5]
+	B --> C{ltf_close > recent_high_5?}
+	C -->|Yes| D[BUY candidate]
+	C -->|No| E{ltf_close < recent_low_5?}
+	E -->|Yes| F[SELL candidate]
+	E -->|No| G[No signal]
+```
+
+Decision fields to inspect in logs:
+- `decision_data.window_bars` (5)
+- `decision_data.recent_high_5`
+- `decision_data.recent_low_5`
+- `decision_data.ltf_close`
+
 ### 3. scalping
 
 How it works:
@@ -90,6 +173,22 @@ Suggested configuration:
 - `GOLD_TAKE_PROFIT_PIPS=90`
 - `GOLD_RISK_PERCENT=0.5`
 
+Decision diagram:
+
+```mermaid
+flowchart TD
+	A[Compute LTF ema_fast and ema_slow] --> B{ema_fast > ema_slow and prev_fast <= prev_slow?}
+	B -->|Yes| C[BUY candidate]
+	B -->|No| D{ema_fast < ema_slow and prev_fast >= prev_slow?}
+	D -->|Yes| E[SELL candidate]
+	D -->|No| F[No signal]
+```
+
+Decision fields to inspect in logs:
+- `decision_data.ema_fast`, `decision_data.ema_slow`
+- `decision_data.ema_fast_prev`, `decision_data.ema_slow_prev`
+- `decision_data.ltf_close`
+
 ### 4. news
 
 How it works:
@@ -105,6 +204,23 @@ Suggested configuration:
 - `GOLD_STOP_LOSS_PIPS=60`
 - `GOLD_TAKE_PROFIT_PIPS=140`
 
+Decision diagram:
+
+```mermaid
+flowchart TD
+	A[Read current and previous candle] --> B{current_close > prev_close and current_high > prev_high?}
+	B -->|Yes| C[BUY candidate]
+	B -->|No| D{current_close < prev_close and current_low < prev_low?}
+	D -->|Yes| E[SELL candidate]
+	D -->|No| F[No signal]
+```
+
+Decision fields to inspect in logs:
+- `decision_data.prev_close`
+- `decision_data.current_high`, `decision_data.prev_high`
+- `decision_data.current_low`, `decision_data.prev_low`
+- `decision_data.ltf_close`
+
 ### 5. session_breakout
 
 How it works:
@@ -119,6 +235,31 @@ Suggested configuration:
 - `GOLD_STRATEGY_NAMES=session_breakout`
 - `GOLD_STOP_LOSS_PIPS=100`
 - `GOLD_TAKE_PROFIT_PIPS=220`
+
+Decision diagram:
+
+```mermaid
+flowchart TD
+	A[Take prior 8-candle window excluding latest candle] --> B[Compute session_high_8 and session_low_8]
+	B --> C{session_close > session_high_8?}
+	C -->|Yes| D[BUY candidate]
+	C -->|No| E{session_close < session_low_8?}
+	E -->|Yes| F[SELL candidate]
+	E -->|No| G[No signal]
+```
+
+Decision fields to inspect in logs:
+- `decision_data.window_bars` (8)
+- `decision_data.session_high_8`
+- `decision_data.session_low_8`
+- `decision_data.session_close`
+
+HTF confirmation fields (applies to all strategies):
+- `decision_data.htf_confirmation.bias`
+- `decision_data.htf_confirmation.close`
+- `decision_data.htf_confirmation.ema_fast`
+- `decision_data.htf_confirmation.ema_slow`
+- `decision_data.htf_confirmation.ema_trend`
 
 ## Strategy presets
 

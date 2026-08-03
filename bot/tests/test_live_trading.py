@@ -7,8 +7,7 @@ from bot.src.application.services.gold_live_service import GoldLiveService
 from bot.src.application.services.gold_runner import GoldRunner
 from bot.src.infrastructure.charting.live_plot import LiveChartRenderer
 from bot.src.infrastructure.config.settings import load_gold_settings
-from bot.src.infrastructure.mt5 import connector as mt5_connector
-from bot.src.infrastructure.mt5.connector import GoldMt5Connector
+from bot.src.infrastructure.ctrader.connector import GoldCTraderConnector
 from bot.src.infrastructure.persistence.sqlite_store import GoldPositionStore
 
 
@@ -25,9 +24,18 @@ def _copy_example_env(tmp_path: Path) -> str:
     return str(env_path)
 
 
-def test_mt5_connector_requires_credentials() -> None:
-    settings = SimpleNamespace(mt5_login=0, mt5_password="", mt5_server="", mt5_path="")
-    connector = GoldMt5Connector(settings)
+def test_ctrader_connector_requires_credentials() -> None:
+    settings = SimpleNamespace(
+        ctrader_client_id="",
+        ctrader_client_secret="",
+        ctrader_access_token="",
+        ctrader_refresh_token="",
+        ctrader_account_id=0,
+        ctrader_host="demo",
+        ctrader_request_timeout_seconds=3.0,
+        ctrader_connect_timeout_seconds=3.0,
+    )
+    connector = GoldCTraderConnector(settings)
 
     assert connector.connect() is False
 
@@ -62,67 +70,93 @@ def test_position_store_persists_and_closes_positions(tmp_path: Path) -> None:
     assert closed_positions[0]["close_price"] == 2350.0
 
 
-def test_connector_get_rates_uses_python_datetime(monkeypatch) -> None:
-    settings = SimpleNamespace(mt5_login=316016904, mt5_password="demo", mt5_server="demo", mt5_path="")
-    connector = GoldMt5Connector(settings)
-    connector._connected = True
-
-    class FakeRate:
-        def __init__(self) -> None:
-            self.time = 1710000000
-            self.open = 1.0
-            self.high = 1.1
-            self.low = 0.9
-            self.close = 1.05
-            self.tick_volume = 10
-
-    fake_mt5 = SimpleNamespace(
-        TIMEFRAME_M15=1,
-        copy_rates_from=lambda symbol, timeframe, start, count: [FakeRate()],
+def test_connector_get_rates_normalizes_trendbars(monkeypatch) -> None:
+    settings = SimpleNamespace(
+        ctrader_client_id="id",
+        ctrader_client_secret="secret",
+        ctrader_access_token="token",
+        ctrader_refresh_token="refresh",
+        ctrader_account_id=123,
+        ctrader_host="demo",
+        ctrader_request_timeout_seconds=3.0,
+        ctrader_connect_timeout_seconds=3.0,
     )
-    monkeypatch.setattr(mt5_connector, "mt5", fake_mt5)
+    connector = GoldCTraderConnector(settings)
+    connector._connected = True
+    connector._account_id = 123
+    connector._symbols_by_name = {"XAUUSD": {"symbolId": 987, "symbolName": "XAUUSD"}}
+
+    class FakeTrendbar:
+        def __init__(self) -> None:
+            self.utcTimestampInMinutes = 1710000000 // 60
+            self.low = 230000000
+            self.deltaOpen = 100000
+            self.deltaClose = 120000
+            self.deltaHigh = 180000
+            self.volume = 42
+
+    class FakeResponse:
+        def __init__(self) -> None:
+            self.trendbar = [FakeTrendbar()]
+
+    monkeypatch.setattr(connector, "_send_and_extract", lambda request, timeout=None: FakeResponse())
 
     rates = connector.get_rates("XAUUSD", "M15", count=1)
 
     assert len(rates) == 1
     assert rates[0]["symbol"] == "XAUUSD"
+    assert rates[0]["open"] == 2301.0
+    assert rates[0]["close"] == 2301.2
+    assert rates[0]["high"] == 2301.8
+    assert rates[0]["low"] == 2300.0
+    assert rates[0]["tick_volume"] == 42
 
 
-def test_connector_resolves_gold_alias_to_broker_symbol(monkeypatch) -> None:
-    settings = SimpleNamespace(mt5_login=316016904, mt5_password="demo", mt5_server="demo", mt5_path="")
-    connector = GoldMt5Connector(settings)
-    connector._connected = True
-
-    class FakeSymbol:
-        def __init__(self, name: str) -> None:
-            self.name = name
-
-    fake_mt5 = SimpleNamespace(
-        symbols_get=lambda: [FakeSymbol("EURUSD"), FakeSymbol("XAUUSD"), FakeSymbol("GBPUSD")],
+def test_connector_resolves_gold_alias_to_broker_symbol() -> None:
+    settings = SimpleNamespace(
+        ctrader_client_id="id",
+        ctrader_client_secret="secret",
+        ctrader_access_token="token",
+        ctrader_refresh_token="refresh",
+        ctrader_account_id=123,
+        ctrader_host="demo",
+        ctrader_request_timeout_seconds=3.0,
+        ctrader_connect_timeout_seconds=3.0,
     )
-    monkeypatch.setattr(mt5_connector, "mt5", fake_mt5)
+    connector = GoldCTraderConnector(settings)
+    connector._connected = True
+    connector._symbols_by_name = {
+        "EURUSD": {"symbolId": 1, "symbolName": "EURUSD"},
+        "XAUUSD": {"symbolId": 2, "symbolName": "XAUUSD"},
+        "GBPUSD": {"symbolId": 3, "symbolName": "GBPUSD"},
+    }
 
     assert connector.resolve_symbol("GOLD") == "XAUUSD"
 
 
-def test_connector_resolves_gold_alias_with_suffix(monkeypatch) -> None:
-    settings = SimpleNamespace(mt5_login=316016904, mt5_password="demo", mt5_server="demo", mt5_path="")
-    connector = GoldMt5Connector(settings)
-    connector._connected = True
-
-    class FakeSymbol:
-        def __init__(self, name: str) -> None:
-            self.name = name
-
-    fake_mt5 = SimpleNamespace(
-        symbols_get=lambda: [FakeSymbol("EURUSD"), FakeSymbol("XAUUSD.a"), FakeSymbol("GBPUSD")],
+def test_connector_resolves_gold_alias_with_suffix() -> None:
+    settings = SimpleNamespace(
+        ctrader_client_id="id",
+        ctrader_client_secret="secret",
+        ctrader_access_token="token",
+        ctrader_refresh_token="refresh",
+        ctrader_account_id=123,
+        ctrader_host="demo",
+        ctrader_request_timeout_seconds=3.0,
+        ctrader_connect_timeout_seconds=3.0,
     )
-    monkeypatch.setattr(mt5_connector, "mt5", fake_mt5)
+    connector = GoldCTraderConnector(settings)
+    connector._connected = True
+    connector._symbols_by_name = {
+        "EURUSD": {"symbolId": 1, "symbolName": "EURUSD"},
+        "XAUUSD.A": {"symbolId": 2, "symbolName": "XAUUSD.A"},
+        "GBPUSD": {"symbolId": 3, "symbolName": "GBPUSD"},
+    }
 
-    assert connector.resolve_symbol("GOLD") == "XAUUSD.a"
+    assert connector.resolve_symbol("GOLD") == "XAUUSD.A"
 
 
-def test_live_service_requires_mt5_connection(tmp_path: Path) -> None:
+def test_live_service_requires_ctrader_connection(tmp_path: Path) -> None:
     settings = load_gold_settings(_copy_example_env(tmp_path))
     runner = GoldRunner(settings)
 

@@ -4,7 +4,7 @@ Gold Bot is a lightweight strategy runner for XAUUSD that packages multiple trad
 
 ## What the bot does
 
-The bot evaluates OHLC market data, emits directional signals, and can turn each signal into one or more laddered trade plans. It supports backtesting from historical CSV files and MT5-only live execution.
+The bot evaluates OHLC market data, emits directional signals, and can turn each signal into one or more laddered trade plans. It supports backtesting from historical CSV files and cTrader-only live execution.
 
 ## Strategies
 
@@ -30,7 +30,7 @@ Update gold_bot/.env to change strategy names, ladder size, risk settings, and b
 
 ## Live behavior
 
-- Live mode pulls candles from MT5 only and will stop if MT5 is unavailable.
+- Live mode pulls candles from cTrader only and will stop if cTrader is unavailable.
 - Live plotting shows side-by-side lower and higher timeframe Heikin-Ashi charts.
 - Trade signal and live entry markers are drawn on charts.
 - Position monitoring updates every 5 seconds by default; account monitoring updates every 30 seconds by default.

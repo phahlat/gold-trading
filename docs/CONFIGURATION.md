@@ -8,14 +8,20 @@ The file contains grouped sections with detailed comments so you can understand 
 
 ## Environment Variable Groups
 
-### MT5 Connection Settings
+### cTrader Connection Settings
 
 Used only for live trading.
 
-1. MT5_LOGIN
-2. MT5_PASSWORD
-3. MT5_SERVER
-4. MT5_PATH
+1. CTRADER_CLIENT_ID
+2. CTRADER_CLIENT_SECRET
+3. CTRADER_ACCESS_TOKEN
+4. CTRADER_REFRESH_TOKEN
+5. CTRADER_ACCOUNT_ID
+6. CTRADER_LIVE_ACCOUNT_ID
+7. CTRADER_DEMO_ACCOUNT_ID
+8. CTRADER_HOST
+9. CTRADER_REQUEST_TIMEOUT_SECONDS
+10. CTRADER_CONNECT_TIMEOUT_SECONDS
 
 ### Runtime Scope
 
@@ -38,7 +44,7 @@ Used for both live and backtest runs.
 15. PLOT_LTF_CANDLES
 16. PLOT_HTF_CANDLES
 17. MAX_CYCLES
-18. MT5_POSITION_DB_PATH
+18. CTRADER_POSITION_DB_PATH
 19. LOG_LEVEL
 
 Chart sizing behavior:
@@ -69,7 +75,7 @@ Used when running against historical CSV data.
 5. BACKTEST_SPEED
 6. BACKTEST_LOOKBACK_VALUE
 7. BACKTEST_LOOKBACK_UNIT
-8. BACKTEST_USE_MT5_PROFILE
+8. BACKTEST_USE_BROKER_PROFILE
 9. BACKTEST_SIMULATE_MARGIN_REJECTION
 10. BACKTEST_VOLUME_MIN
 11. BACKTEST_VOLUME_MAX
@@ -92,7 +98,7 @@ Backtest lookback window:
 - Set `BACKTEST_LOOKBACK_VALUE=0` to disable filtering and use full dataset.
 
 Backtest realism controls:
-- `BACKTEST_USE_MT5_PROFILE=true` loads broker symbol constraints and leverage (when MT5 is reachable).
+- `BACKTEST_USE_BROKER_PROFILE=true` loads broker symbol constraints and leverage (when cTrader is reachable).
 - `BACKTEST_SIMULATE_MARGIN_REJECTION=true` skips trades that would exceed estimated available margin.
 - `BACKTEST_VOLUME_MIN/MAX/STEP` provide fallback lot constraints when broker metadata is unavailable.
 - `BACKTEST_MAX_VOLUME_CAP` adds an optional hard upper lot cap on top of broker limits.

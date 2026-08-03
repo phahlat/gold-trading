@@ -13,9 +13,9 @@ from bot.src.application.services.gold_live_service import GoldLiveService
 from bot.src.application.services.gold_runner import GoldRunner
 from bot.src.infrastructure.charting.live_plot import LiveChartRenderer
 from bot.src.infrastructure.config.settings import load_gold_settings
+from bot.src.infrastructure.ctrader.connector import GoldCTraderConnector
 from bot.src.infrastructure.logging.runtime import GoldQueueLoggingManager
 from bot.src.infrastructure.market_data.csv_loader import load_backtest_ltf_htf_frames
-from bot.src.infrastructure.mt5.connector import GoldMt5Connector
 from bot.src.infrastructure.persistence.sqlite_store import GoldPositionStore
 
 logger = logging.getLogger(__name__)
@@ -252,7 +252,7 @@ def main() -> int:
         settings.symbols,
         settings.strategy_names,
     )
-    connector = GoldMt5Connector(settings)
+    connector = GoldCTraderConnector(settings)
     position_store = GoldPositionStore(settings.position_db_path)
     chart_renderer = LiveChartRenderer(
         output_dir=Path("logs"),

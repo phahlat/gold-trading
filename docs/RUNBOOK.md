@@ -8,7 +8,7 @@ This runbook covers the single gold bot entrypoint used for backtest, dry-run, a
 
 1. Open the repository root in a terminal.
 2. Activate the workspace virtual environment before running anything: `.venv\Scripts\Activate.ps1` (PowerShell) or `.venv\Scripts\python.exe` for direct execution.
-3. Copy bot/.env.example to bot/.env and update the MT5 credentials and strategy settings.
+3. Copy bot/.env.example to bot/.env and update the cTrader credentials and strategy settings.
 4. Choose a strategy preset from docs/STRATEGIES.md before you run the bot.
 
 ## Backtest Commands
@@ -50,6 +50,11 @@ cd /d c:\CodePlay\gold-trading-bot
 
 ## Live / Dry-Run Commands
 
+Host/account switching:
+- Set `CTRADER_HOST=live` to route the bot to the live cTrader endpoint.
+- Set `CTRADER_HOST=demo` to route the bot to the demo cTrader endpoint.
+- Keep `CTRADER_ACCOUNT_ID=0` to auto-pick `CTRADER_LIVE_ACCOUNT_ID` or `CTRADER_DEMO_ACCOUNT_ID`.
+
 ```bat
 cd /d c:\CodePlay\gold-trading-bot
 
@@ -62,7 +67,7 @@ REM Dry run with logging enabled
 REM Headless dry run
 .\.venv\Scripts\python.exe .\main.py --mode live --no-trade --symbols XAUUSD --strategy price_action --no-plot
 
-REM Live execution (orders allowed, MT5 credentials required)
+REM Live execution (orders allowed, cTrader credentials required)
 .\.venv\Scripts\python.exe .\main.py --mode live --trade --symbols XAUUSD --strategy trend_following,price_action --plot
 
 REM Broker symbol evaluation (GOLD alias)
@@ -78,6 +83,7 @@ REM Broker symbol evaluation (XAUUSD alias)
 - Log verbosity is controlled by `LOG_LEVEL` in `bot/.env` and defaults to `DEBUG`.
 - Emoji log taxonomy in live mode:
 	- `📈` cycle-level candidate signal counts
+	- `🧭` higher-timeframe confirmation values (bias + EMA context)
 	- `📣` full signal details (strategy, direction, reason, price, timestamps)
 	- `⛔` explicit skip reasons (daily trades, daily risk, open-position cap)
 	- `🧾` entry request payload before order placement
@@ -88,14 +94,31 @@ REM Broker symbol evaluation (XAUUSD alias)
 - Live plotting renders side-by-side lower/higher timeframe Heikin-Ashi charts and overlays trade signal / entry markers.
 - Backtest plotting also overlays labeled trade levels at entry timestamp: `Entry`, `SL`, and `TP1..TPx`.
 - Live logs now include `🛰️ Plot update input | ltf_rows=... htf_rows=...` so you can verify candles are being fed to each panel.
-- Live charts now overlay a ticker dot (`tick`) from current MT5 price, so movement remains visible even before a new candle closes.
+- Live charts now overlay a ticker dot (`tick`) from current cTrader price, so movement remains visible even before a new candle closes.
 - `POSITION_MONITOR_SECONDS` defaults to 5 seconds and `ACCOUNT_MONITOR_SECONDS` defaults to 30 seconds.
 - When you run the bot in live mode, startup logs include configured `log_level`, trading mode, plotting mode, symbols, and strategies.
 
+### How to audit why a signal was picked
+
+Use this 4-step checklist on each cycle:
+1. Read `🧭 HTF confirmation` and record `bias`, `close`, `ema_fast`, `ema_slow`, `ema_trend`.
+2. Read each `📣 Signal detected` line and inspect `decision_data` for that strategy.
+3. Recompute the condition from logged values (for example, `ltf_close < recent_low_5` for price action sell).
+4. Confirm direction matches HTF bias when bias is not neutral.
+
+Quick interpretation examples:
+- `price_action` sell is valid when `decision_data.ltf_close < decision_data.recent_low_5`.
+- `session_breakout` sell is valid when `decision_data.session_close < decision_data.session_low_8`.
+- HTF sell confirmation is valid when `htf_close <= ema_trend` and `ema_fast <= ema_slow`.
+
+Notes:
+- In dry-run mode (`--no-trade`), valid signals log `🧪 Signal confirmed (dry-run only)` and no orders are sent.
+- Open position `profit` in the monitor table is mapped from cTrader unrealized PnL per position, so non-zero values should appear while market price moves.
+
 ## Live-mode constraints
 
-- Live mode is MT5-only and does not fall back to CSV candles.
-- If MT5 cannot connect, the process exits with an error so no stale/offline data can trigger signals.
+- Live mode is cTrader-only and does not fall back to CSV candles.
+- If cTrader cannot connect, the process exits with an error so no stale/offline data can trigger signals.
 
 ## Symbol verification
 

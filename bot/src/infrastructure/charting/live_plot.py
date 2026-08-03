@@ -117,7 +117,18 @@ class LiveChartRenderer:
         normalized = normalized.sort_index()
         if isinstance(normalized.index, pd.DatetimeIndex):
             normalized = normalized[~normalized.index.duplicated(keep="last")]
-        return normalized[["open", "high", "low", "close"]].astype(float)
+        normalized = normalized[["open", "high", "low", "close"]].astype(float)
+
+        valid = (
+            normalized.notna().all(axis=1)
+            & (normalized > 0).all(axis=1)
+            & (normalized["high"] >= normalized[["open", "close", "low"]].max(axis=1))
+            & (normalized["low"] <= normalized[["open", "close", "high"]].min(axis=1))
+        )
+        dropped = int((~valid).sum())
+        if dropped > 0:
+            logger.warning("Chart renderer skipped %s malformed OHLC rows", dropped)
+        return normalized.loc[valid]
 
     @staticmethod
     def _to_heikin_ashi(frame: pd.DataFrame) -> pd.DataFrame:
@@ -250,7 +261,7 @@ class LiveChartRenderer:
                 datetime_format="%H:%M",
                 warn_too_much_data=max(10000, len(lower) + 1),
             )
-            self._draw_ema_overlays(lower_ax, lower_raw, lower.index)
+            self._draw_ema_overlays(lower_ax, lower_clipped, lower.index)
         if not higher.empty:
             mpf.plot(
                 higher,
@@ -262,7 +273,7 @@ class LiveChartRenderer:
                 datetime_format="%d %H:%M",
                 warn_too_much_data=max(10000, len(higher) + 1),
             )
-            self._draw_ema_overlays(higher_ax, higher_raw, higher.index)
+            self._draw_ema_overlays(higher_ax, higher_clipped, higher.index)
 
         self._plot_markers(lower_ax, lower_markers or [], lower.index)
         self._plot_markers(higher_ax, higher_markers or [], higher.index)
@@ -356,7 +367,18 @@ class LiveChartRenderer:
     def _draw_ticker_trail(self, ax: Any, ticker_trail: list[dict[str, Any]] | None, index: pd.Index) -> None:
         if not ticker_trail or index.empty:
             return
-        prices = [float(item.get("price", 0.0)) for item in ticker_trail if item.get("price") is not None]
+        prices: list[float] = []
+        for item in ticker_trail:
+            value = item.get("price")
+            if value is None:
+                continue
+            try:
+                parsed = float(value)
+            except (TypeError, ValueError):
+                continue
+            if parsed <= 0:
+                continue
+            prices.append(parsed)
         if len(prices) < 2:
             return
 

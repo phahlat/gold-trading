@@ -10,7 +10,7 @@ import pandas as pd
 from bot.src.application.services.gold_runner import GoldRunner
 from bot.src.infrastructure.charting.live_plot import LiveChartRenderer
 from bot.src.infrastructure.config.settings import GoldSettings
-from bot.src.infrastructure.mt5.connector import GoldMt5Connector
+from bot.src.infrastructure.ctrader.connector import GoldCTraderConnector
 from bot.src.infrastructure.persistence.sqlite_store import GoldPositionStore
 
 logger = logging.getLogger(__name__)
@@ -536,9 +536,11 @@ class GoldBacktestService:
         if fixed_lot_size > 0:
             return max(0.01, fixed_lot_size), "gold_fixed_lot_size"
 
-        # Backtests now use fixed pip-based targets and fixed lot sizing when configured.
-        # If no fixed size is set, fall back to a minimal default volume so the behavior is stable.
-        return 0.01, "default_minimum_volume"
+        risk_pct = max(0.0, float(getattr(self.settings, "risk_percent", 1.0)))
+        stop_loss_pips = max(1.0, float(getattr(self.settings, "stop_loss_pips", 120.0)))
+        risk_amount = max(0.0, equity) * (risk_pct / 100.0)
+        estimated_volume = risk_amount / stop_loss_pips
+        return max(0.01, estimated_volume), "risk_percent"
 
     def _normalize_backtest_volume(self, raw_volume: float, profile: dict[str, float | str]) -> tuple[float, bool]:
         min_volume = max(0.01, float(profile.get("volume_min", 0.01) or 0.01))
@@ -564,13 +566,13 @@ class GoldBacktestService:
             "leverage": max(1.0, float(getattr(self.settings, "backtest_default_leverage", 100.0))),
             "margin_initial": 0.0,
         }
-        if not bool(getattr(self.settings, "backtest_use_mt5_profile", True)):
-            logger.info("Backtest broker profile | source=defaults (mt5 profile disabled)")
+        if not bool(getattr(self.settings, "backtest_use_broker_profile", True)):
+            logger.info("Backtest broker profile | source=defaults (broker profile disabled)")
             return profile
 
-        connector = GoldMt5Connector(self.settings)
+        connector = GoldCTraderConnector(self.settings)
         if not connector.connect():
-            logger.info("Backtest broker profile | source=defaults (mt5 unavailable)")
+            logger.info("Backtest broker profile | source=defaults (ctrader unavailable)")
             return profile
 
         try:
@@ -590,9 +592,9 @@ class GoldBacktestService:
                 profile["margin_initial"] = float(symbol_meta.get("margin_initial", 0.0))
             if float(account_meta.get("leverage", 0.0) or 0.0) > 0:
                 profile["leverage"] = float(account_meta.get("leverage", profile["leverage"]))
-            profile["source"] = "mt5"
+            profile["source"] = "ctrader"
             logger.info(
-                "Backtest broker profile | source=mt5 symbol=%s volume_min=%.2f volume_max=%.2f volume_step=%.4f contract_size=%.2f leverage=%.0f margin_initial=%.2f",
+                "Backtest broker profile | source=ctrader symbol=%s volume_min=%.2f volume_max=%.2f volume_step=%.4f contract_size=%.2f leverage=%.0f margin_initial=%.2f",
                 resolved_symbol,
                 float(profile.get("volume_min", 0.01)),
                 float(profile.get("volume_max", 50.0)),

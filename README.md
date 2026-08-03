@@ -41,4 +41,4 @@ REM Dry run
 
 1. Use --no-trade for first-time validation and logic checks.
 2. Validate settings on small data first, then scale to full backtests.
-3. Keep MT5 credentials private and never commit the local bot/.env file.
+3. Keep cTrader credentials private and never commit the local bot/.env file.
