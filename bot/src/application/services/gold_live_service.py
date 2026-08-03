@@ -108,7 +108,6 @@ class GoldLiveService:
                     run_status = "completed_max_cycles"
                     break
 
-<<<<<<< HEAD
                 lower_frame = self._pull_frame(symbol, self.settings.lower_timeframe)
                 higher_frame = self._pull_frame(symbol, self.settings.higher_timeframe)
                 if lower_frame.empty or higher_frame.empty:
@@ -133,54 +132,6 @@ class GoldLiveService:
                     logger.info("📈 Cycle %s generated %s candidate signal(s)", cycle + 1, len(candidates))
                 for candidate in candidates:
                     self._handle_candidate(symbol, candidate, lower_frame, higher_frame)
-=======
-                frames_by_timeframe: dict[str, pd.DataFrame] = {}
-                missing_frames: set[str] = set()
-                unique_timeframes = self._active_strategy_timeframes(strategy_names)
-                for timeframe in unique_timeframes:
-                    frame = self._pull_frame(symbol, timeframe)
-                    if frame.empty:
-                        missing_frames.add(timeframe)
-                    frames_by_timeframe[timeframe] = frame
-
-                if missing_frames:
-                    logger.warning(
-                        "⚠️ Missing MT5 bars for %s timeframe(s): %s. Retrying.",
-                        symbol,
-                        ",".join(sorted(missing_frames)),
-                    )
-                    time.sleep(max(0.2, self.settings.poll_seconds))
-                    continue
-
-                total_candidates = 0
-                for strategy_name in strategy_names:
-                    preset = self._strategy_runtime_config(strategy_name)
-                    lower_tf = str(preset["lower_timeframe"])
-                    higher_tf = str(preset["higher_timeframe"])
-                    lower_frame = frames_by_timeframe.get(lower_tf, pd.DataFrame())
-                    higher_frame = frames_by_timeframe.get(higher_tf, pd.DataFrame())
-                    if lower_frame.empty or higher_frame.empty:
-                        continue
-                    candidates = self.runner.evaluate_candidates(
-                        lower_frame,
-                        higher_frame=higher_frame,
-                        strategy_names=[strategy_name],
-                    )
-                    total_candidates += len(candidates)
-                    for candidate in candidates:
-                        self._handle_candidate(
-                            symbol=symbol,
-                            candidate=candidate,
-                            lower_frame=lower_frame,
-                            higher_frame=higher_frame,
-                            lower_timeframe=lower_tf,
-                            higher_timeframe=higher_tf,
-                            stop_loss_pips=float(preset["stop_loss_pips"]),
-                            take_profit_pips=float(preset["take_profit_pips"]),
-                        )
-                if total_candidates:
-                    logger.info("📈 Cycle %s generated %s candidate signal(s)", cycle + 1, total_candidates)
->>>>>>> origin/main
 
                 now = time.monotonic()
                 if now - last_position_monitor >= self.settings.position_monitor_seconds:
