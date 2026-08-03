@@ -312,9 +312,9 @@ class LiveChartRenderer:
         ema_trend = close.ewm(span=self._ema_trend_period, adjust=False).mean().reindex(clipped_index)
 
         x = list(range(len(clipped_index)))
-        ax.plot(x, ema_fast.values, color="#ffb000", linewidth=1.1, alpha=0.95, label=f"EMA {self._ema_fast}", zorder=5)
-        ax.plot(x, ema_slow.values, color="#00a1ff", linewidth=1.1, alpha=0.95, label=f"EMA {self._ema_slow}", zorder=5)
-        ax.plot(x, ema_trend.values, color="#8e44ad", linewidth=1.0, alpha=0.9, label=f"EMA {self._ema_trend_period}", zorder=5)
+        ax.plot(x, ema_fast.values, color="#ff0000", linewidth=1.1, alpha=0.95, label=f"EMA {self._ema_fast}", zorder=5)
+        ax.plot(x, ema_slow.values, color="#0000ff", linewidth=1.1, alpha=0.95, label=f"EMA {self._ema_slow}", zorder=5)
+        ax.plot(x, ema_trend.values, color="#ffffff", linewidth=1.0, alpha=0.9, label=f"EMA {self._ema_trend_period}", zorder=5)
         ax.legend(loc="upper left", fontsize=8)
 
     def _draw_equity_panel(self, ax: Any, equity_curve: list[dict[str, Any]] | None, mode_label: str) -> None:
