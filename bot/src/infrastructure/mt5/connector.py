@@ -185,6 +185,7 @@ class GoldMt5Connector:
             "volume_min": float(getattr(info, "volume_min", 0.01)),
             "volume_max": float(getattr(info, "volume_max", 100.0)),
             "volume_step": float(getattr(info, "volume_step", 0.01)),
+            "trade_mode": int(getattr(info, "trade_mode", -1)),
             "filling_mode": int(getattr(info, "filling_mode", -1)),
             "trade_exemode": int(getattr(info, "trade_exemode", -1)),
         }
@@ -334,6 +335,39 @@ class GoldMt5Connector:
             filling_label,
         )
 
+        # Preflight broker-side validation so rejections are easier to diagnose.
+        order_check_dict: dict[str, Any] | None = None
+        try:
+            order_check_result = mt5.order_check(request)
+        except Exception as exc:  # pragma: no cover - defensive logging
+            logger.exception("⚠️ MT5 order_check failed for %s: %s", symbol, exc)
+            order_check_result = None
+
+        if order_check_result is not None:
+            order_check_dict = order_check_result._asdict() if hasattr(order_check_result, "_asdict") else {}
+            logger.info(
+                "🧪 MT5 order_check | symbol=%s direction=%s retcode=%s comment=%s margin=%.2f margin_free=%.2f",
+                symbol,
+                direction,
+                order_check_dict.get("retcode"),
+                order_check_dict.get("comment"),
+                float(order_check_dict.get("margin", 0.0) or 0.0),
+                float(order_check_dict.get("margin_free", 0.0) or 0.0),
+            )
+
+        terminal = mt5.terminal_info()
+        account = mt5.account_info()
+        diagnostics = {
+            "terminal_connected": bool(getattr(terminal, "connected", False)) if terminal is not None else None,
+            "terminal_trade_allowed": bool(getattr(terminal, "trade_allowed", False)) if terminal is not None else None,
+            "account_trade_allowed": bool(getattr(account, "trade_allowed", False)) if account is not None else None,
+            "account_trade_expert": bool(getattr(account, "trade_expert", False)) if account is not None else None,
+            "symbol_trade_mode": symbol_meta.get("trade_mode"),
+            "symbol_trade_exemode": symbol_meta.get("trade_exemode"),
+            "symbol_filling_mode": symbol_meta.get("filling_mode"),
+            "order_check": order_check_dict,
+        }
+
         try:
             result = mt5.order_send(request)
         except Exception as exc:  # pragma: no cover - defensive logging
@@ -341,7 +375,13 @@ class GoldMt5Connector:
             return {"ok": False, "reason": "exception", "error": str(exc)}
 
         if result is None:
-            return {"ok": False, "reason": "no_result", "last_error": mt5.last_error()}
+            return {
+                "ok": False,
+                "reason": "no_result",
+                "last_error": mt5.last_error(),
+                "details": diagnostics,
+                "filling": filling_label,
+            }
 
         result_dict = result._asdict() if hasattr(result, "_asdict") else {}
         retcode = int(result_dict.get("retcode", getattr(result, "retcode", 0)))
@@ -356,7 +396,16 @@ class GoldMt5Connector:
                 filling_label,
                 result_dict,
             )
-            return {"ok": False, "reason": "rejected", "retcode": retcode, "details": result_dict, "filling": filling_label}
+            return {
+                "ok": False,
+                "reason": "rejected",
+                "retcode": retcode,
+                "details": {
+                    "order_send": result_dict,
+                    "diagnostics": diagnostics,
+                },
+                "filling": filling_label,
+            }
 
         logger.info(
             "✅ MT5 order accepted | symbol=%s direction=%s retcode=%s order=%s deal=%s filling=%s",

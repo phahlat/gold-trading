@@ -4,7 +4,7 @@ import logging
 import math
 import time
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import pandas as pd
@@ -132,8 +132,14 @@ class GoldLiveService:
                         pair_index = int(pair_config.get("pair_index", 0))
                         lower_tf = str(pair_config["lower_timeframe"])
                         higher_tf = str(pair_config["higher_timeframe"])
-                        lower_frame = frames_by_timeframe.get(lower_tf, pd.DataFrame())
-                        higher_frame = frames_by_timeframe.get(higher_tf, pd.DataFrame())
+                        lower_frame = self._closed_candle_frame(
+                            frames_by_timeframe.get(lower_tf, pd.DataFrame()),
+                            lower_tf,
+                        )
+                        higher_frame = self._closed_candle_frame(
+                            frames_by_timeframe.get(higher_tf, pd.DataFrame()),
+                            higher_tf,
+                        )
                         if lower_frame.empty or higher_frame.empty:
                             continue
                         candidates = self.runner.evaluate_candidates(
@@ -231,7 +237,49 @@ class GoldLiveService:
         frame["datetime"] = pd.to_datetime(frame["time"], unit="s", utc=True).dt.tz_convert(None)
         frame = frame.sort_values("datetime").reset_index(drop=True)
         required = ["datetime", "open", "high", "low", "close"]
-        return frame[required]
+        frame = frame[required].copy()
+        return self._closed_candle_frame(frame, timeframe)
+
+    def _closed_candle_frame(self, frame: pd.DataFrame, timeframe: str) -> pd.DataFrame:
+        if frame.empty or "datetime" not in frame.columns:
+            return frame
+        if len(frame) < 2:
+            return frame
+
+        timeframe_delta = self._timeframe_delta(timeframe)
+        if timeframe_delta is None:
+            # Unknown timeframe format, keep conservative behavior by dropping latest bar.
+            return frame.iloc[:-1].reset_index(drop=True)
+
+        last_ts = pd.to_datetime(frame.iloc[-1]["datetime"], errors="coerce")
+        if pd.isna(last_ts):
+            return frame.iloc[:-1].reset_index(drop=True)
+
+        now_utc_naive = datetime.now(timezone.utc).replace(tzinfo=None)
+        if last_ts + timeframe_delta > now_utc_naive:
+            return frame.iloc[:-1].reset_index(drop=True)
+        return frame.reset_index(drop=True)
+
+    def _timeframe_delta(self, timeframe: str) -> timedelta | None:
+        value = str(timeframe or "").strip().upper()
+        if len(value) < 2:
+            return None
+        unit = value[0]
+        amount_text = value[1:]
+        if not amount_text.isdigit():
+            return None
+        amount = int(amount_text)
+        if amount <= 0:
+            return None
+        if unit == "M":
+            return timedelta(minutes=amount)
+        if unit == "H":
+            return timedelta(hours=amount)
+        if unit == "D":
+            return timedelta(days=amount)
+        if unit == "W":
+            return timedelta(weeks=amount)
+        return None
 
     def _bars_to_pull(self, timeframe: str) -> int:
         base_count = max(1, int(self.settings.candle_count))
@@ -424,7 +472,7 @@ class GoldLiveService:
             if not order_result.get("ok"):
                 self._orders_rejected += 1
                 logger.error(
-                    "❌ Trade execution rejected | key=%s symbol=%s strategy=%s level=%s direction=%s reason=%s retcode=%s filling=%s details=%s",
+                    "❌ Trade execution rejected | key=%s symbol=%s strategy=%s level=%s direction=%s reason=%s retcode=%s filling=%s last_error=%s details=%s",
                     signal_key,
                     symbol,
                     candidate.strategy,
@@ -433,6 +481,7 @@ class GoldLiveService:
                     order_result.get("reason"),
                     order_result.get("retcode"),
                     order_result.get("filling"),
+                    order_result.get("last_error"),
                     order_result.get("details"),
                 )
                 continue
