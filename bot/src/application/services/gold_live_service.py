@@ -128,30 +128,32 @@ class GoldLiveService:
 
                 total_candidates = 0
                 for strategy_name in strategy_names:
-                    preset = self._strategy_runtime_config(strategy_name)
-                    lower_tf = str(preset["lower_timeframe"])
-                    higher_tf = str(preset["higher_timeframe"])
-                    lower_frame = frames_by_timeframe.get(lower_tf, pd.DataFrame())
-                    higher_frame = frames_by_timeframe.get(higher_tf, pd.DataFrame())
-                    if lower_frame.empty or higher_frame.empty:
-                        continue
-                    candidates = self.runner.evaluate_candidates(
-                        lower_frame,
-                        higher_frame=higher_frame,
-                        strategy_names=[strategy_name],
-                    )
-                    total_candidates += len(candidates)
-                    for candidate in candidates:
-                        self._handle_candidate(
-                            symbol=symbol,
-                            candidate=candidate,
-                            lower_frame=lower_frame,
+                    for pair_config in self._strategy_runtime_configs(strategy_name):
+                        pair_index = int(pair_config.get("pair_index", 0))
+                        lower_tf = str(pair_config["lower_timeframe"])
+                        higher_tf = str(pair_config["higher_timeframe"])
+                        lower_frame = frames_by_timeframe.get(lower_tf, pd.DataFrame())
+                        higher_frame = frames_by_timeframe.get(higher_tf, pd.DataFrame())
+                        if lower_frame.empty or higher_frame.empty:
+                            continue
+                        candidates = self.runner.evaluate_candidates(
+                            lower_frame,
                             higher_frame=higher_frame,
-                            lower_timeframe=lower_tf,
-                            higher_timeframe=higher_tf,
-                            stop_loss_pips=float(preset["stop_loss_pips"]),
-                            take_profit_pips=float(preset["take_profit_pips"]),
+                            strategy_names=[strategy_name],
                         )
+                        total_candidates += len(candidates)
+                        for candidate in candidates:
+                            self._handle_candidate(
+                                symbol=symbol,
+                                candidate=candidate,
+                                lower_frame=lower_frame,
+                                higher_frame=higher_frame,
+                                lower_timeframe=lower_tf,
+                                higher_timeframe=higher_tf,
+                                stop_loss_pips=float(pair_config["stop_loss_pips"]),
+                                take_profit_pips=float(pair_config["take_profit_pips"]),
+                                pair_index=pair_index,
+                            )
                 if total_candidates:
                     logger.info("📈 Cycle %s generated %s candidate signal(s)", cycle + 1, total_candidates)
 
@@ -260,19 +262,23 @@ class GoldLiveService:
         higher_timeframe: str,
         stop_loss_pips: float,
         take_profit_pips: float,
+        pair_index: int = 0,
     ) -> None:
         ts = lower_frame.iloc[-1]["datetime"]
         strategy_name = str(getattr(candidate, "strategy", "")).strip().lower()
-        signal_key = f"{symbol}:{candidate.strategy}:{candidate.direction}:{ts.isoformat()}"
+        pair_tag = f"{lower_timeframe}/{higher_timeframe}#{pair_index + 1}"
+        signal_key = f"{symbol}:{candidate.strategy}:{pair_tag}:{candidate.direction}:{ts.isoformat()}"
         logger.info(
-            "📣 Signal detected | key=%s symbol=%s strategy=%s direction=%s reason=%s candidate_price=%.5f ltf_ts=%s htf_ts=%s",
+            "📣 Signal detected | key=%s symbol=%s strategy=%s direction=%s reason=%s candidate_price=%.5f ltf=%s ltf_ts=%s htf=%s htf_ts=%s",
             signal_key,
             symbol,
             candidate.strategy,
             candidate.direction,
             candidate.reason,
             float(candidate.price),
+            lower_timeframe,
             ts,
+            higher_timeframe,
             higher_frame.iloc[-1]["datetime"] if not higher_frame.empty and "datetime" in higher_frame.columns else "n/a",
         )
         if signal_key in self._last_signal_keys:
@@ -386,7 +392,8 @@ class GoldLiveService:
             )
             order["stop_loss"] = exit_targets["stop_loss"]
             order["take_profit"] = exit_targets["take_profit"]
-            order_comment = f"{self.settings.trade_comment_prefix}:{candidate.strategy}:L{order['level']}"
+            comment_pair = f"{lower_timeframe}-{higher_timeframe}-P{pair_index + 1}"
+            order_comment = f"{self.settings.trade_comment_prefix}:{candidate.strategy}:{comment_pair}:L{order['level']}"
             logger.info(
                 "🧾 Trade execution request | key=%s symbol=%s strategy=%s level=%s direction=%s volume=%.2f market_price=%.5f request_entry=%.5f sl=%.5f tp=%.5f magic=%s comment=%s",
                 signal_key,
@@ -474,22 +481,42 @@ class GoldLiveService:
                 order_result.get("filling"),
             )
 
-    def _strategy_runtime_config(self, strategy_name: str) -> dict[str, Any]:
+    def _strategy_runtime_configs(self, strategy_name: str) -> list[dict[str, Any]]:
         key = str(strategy_name).strip().lower()
         preset = self.settings.strategy_presets.get(key) if hasattr(self.settings, "strategy_presets") else None
         if preset is None:
-            return {
-                "lower_timeframe": self.settings.lower_timeframe,
-                "higher_timeframe": self.settings.higher_timeframe,
-                "stop_loss_pips": float(self.settings.stop_loss_pips),
-                "take_profit_pips": float(self.settings.take_profit_pips),
+            return [
+                {
+                    "pair_index": 0,
+                    "lower_timeframe": self.settings.lower_timeframe,
+                    "higher_timeframe": self.settings.higher_timeframe,
+                    "stop_loss_pips": float(self.settings.stop_loss_pips),
+                    "take_profit_pips": float(self.settings.take_profit_pips),
+                }
+            ]
+        if not hasattr(preset, "pair_configs"):
+            return [
+                {
+                    "pair_index": 0,
+                    "lower_timeframe": str(getattr(preset, "lower_timeframe", self.settings.lower_timeframe)).upper(),
+                    "higher_timeframe": str(getattr(preset, "higher_timeframe", self.settings.higher_timeframe)).upper(),
+                    "stop_loss_pips": float(getattr(preset, "stop_loss_pips", self.settings.stop_loss_pips)),
+                    "take_profit_pips": float(getattr(preset, "take_profit_pips", self.settings.take_profit_pips)),
+                }
+            ]
+        return [
+            {
+                "pair_index": int(pair.get("pair_index", 0)),
+                "lower_timeframe": str(pair["lower_timeframe"]).upper(),
+                "higher_timeframe": str(pair["higher_timeframe"]).upper(),
+                "stop_loss_pips": float(pair["stop_loss_pips"]),
+                "take_profit_pips": float(pair["take_profit_pips"]),
             }
-        return {
-            "lower_timeframe": str(preset.lower_timeframe).upper(),
-            "higher_timeframe": str(preset.higher_timeframe).upper(),
-            "stop_loss_pips": float(preset.stop_loss_pips),
-            "take_profit_pips": float(preset.take_profit_pips),
-        }
+            for pair in preset.pair_configs()
+        ]
+
+    def _strategy_runtime_config(self, strategy_name: str) -> dict[str, Any]:
+        return self._strategy_runtime_configs(strategy_name)[0]
 
     def _log_enabled_strategy_configs(self, strategy_names: list[str]) -> None:
         env_path = str(getattr(self.settings, "config_env_path", ".env"))
@@ -499,28 +526,29 @@ class GoldLiveService:
             ",".join(strategy_names),
         )
         for strategy_name in strategy_names:
-            preset = self._strategy_runtime_config(strategy_name)
             config_source = "strategy_preset" if strategy_name in getattr(self.settings, "strategy_presets", {}) else "fallback_defaults"
-            logger.info(
-                "🧩 Strategy setup | enabled=true strategy=%s source=%s ltf=%s htf=%s sl_pips=%.2f tp_pips=%.2f multi_entry=%s ladder_entries=%s ladder_step_ratio=%.2f fixed_lot=%.2f",
-                strategy_name,
-                config_source,
-                str(preset["lower_timeframe"]),
-                str(preset["higher_timeframe"]),
-                float(preset["stop_loss_pips"]),
-                float(preset["take_profit_pips"]),
-                bool(self.settings.enable_multi_entry),
-                int(self.settings.ladder_entries),
-                float(self.settings.ladder_step_ratio),
-                float(self.settings.fixed_lot_size),
-            )
+            for preset in self._strategy_runtime_configs(strategy_name):
+                logger.info(
+                    "🧩 Strategy setup | enabled=true strategy=%s source=%s pair_index=%s ltf=%s htf=%s sl_pips=%.2f tp_pips=%.2f multi_entry=%s ladder_entries=%s ladder_step_ratio=%.2f fixed_lot=%.2f",
+                    strategy_name,
+                    config_source,
+                    int(preset.get("pair_index", 0)),
+                    str(preset["lower_timeframe"]),
+                    str(preset["higher_timeframe"]),
+                    float(preset["stop_loss_pips"]),
+                    float(preset["take_profit_pips"]),
+                    bool(self.settings.enable_multi_entry),
+                    int(self.settings.ladder_entries),
+                    float(self.settings.ladder_step_ratio),
+                    float(self.settings.fixed_lot_size),
+                )
 
     def _active_strategy_timeframes(self, strategy_names: list[str]) -> list[str]:
         values: set[str] = set()
         for strategy_name in strategy_names:
-            preset = self._strategy_runtime_config(strategy_name)
-            values.add(str(preset["lower_timeframe"]).upper())
-            values.add(str(preset["higher_timeframe"]).upper())
+            for preset in self._strategy_runtime_configs(strategy_name):
+                values.add(str(preset["lower_timeframe"]).upper())
+                values.add(str(preset["higher_timeframe"]).upper())
         return sorted(values)
 
     def _count_open_positions_by_strategy(self, open_positions: list[dict[str, Any]]) -> dict[str, int]:
